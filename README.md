@@ -3,7 +3,8 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 2** adds a style editor inside the app. Phase 1 was the working keyboard.
+**Phase 3** adds the layout editor and several saved keyboards. Phase 1 was the working
+keyboard, phase 2 the style editor.
 
 ## Run it
 
@@ -24,18 +25,36 @@ Keyboard
 - Shift: tap for one capital, double tap for caps lock, automatic capital at the start of a sentence
 - Enter does the right thing per text field (new line, search, send, next)
 
-Style editor (home screen > **Change the style**)
+Layout editor (home screen > **Edit keys**)
+- Tap a key in the preview to select it, then move it left, right, up or down
+- Add a key before or after, copy a key, delete a key
+- Change what is written on a key, and what it shows and types with shift
+- Choose what a key does: type its letter, type a text of any length (a snippet), shift,
+  backspace, enter, space, open a layer, or nothing
+- Key width, and a key's look: normal, function, accent, or an invisible gap
+- Rows: height, add, move up and down, delete
+- Layers: add, rename, copy, delete, and choose which one opens first
+- Undo, up to 50 steps; dragging a slider counts as one step
+- Warnings when a layer cannot be reached or left, a labelled key does nothing, or there is no backspace
+
+Several keyboards (home screen > **My keyboards**)
+- Keep as many keyboards as you like; one is "in use"
+- New (a copy of the built-in QWERTY), copy, rename, delete
+- The Keys and Style screens always edit the keyboard that is in use
+
+Style editor (home screen > **Edit style**)
 - Eight ready-made looks; choosing one changes colours and key shape but keeps your sizes
 - Every colour, with a picker: sliders, quick choices, or type a colour code
 - Corner roundness, border thickness, key height, gap, letter size
 - Letters: plain, serif or typewriter, and bold
 - Single keys: tap a key in the preview and give it its own background, letter colour or size
-- A live preview at the bottom of the screen, drawn by the same code as the real keyboard
-- Saved automatically; the real keyboard shows the change the next time it opens
 - Reset puts the style back without touching your keys
 
-Not in yet: changing which keys exist (phase 3), long-press alternates, key pop-ups,
-vibration, number-field layouts, emoji, clipboard, GIFs, suggestions, autocorrect, swipe typing.
+Everything is saved automatically, and the real keyboard shows changes the next time it opens.
+
+Not in yet: dragging keys with a finger (keys move with buttons for now), long-press
+alternates, key pop-ups, vibration, number-field layouts, emoji, clipboard, GIFs, suggestions,
+autocorrect, swipe typing.
 
 ## Where things are
 
@@ -45,15 +64,18 @@ app/src/main/
   java/app/keybuilder/
     model/KeyboardModel.kt       what a keyboard is: layers, rows, keys, theme
     model/LayoutJson.kt          reads and writes layout files, with readable error messages
+    model/LayoutEdits.kt         every change the layout editor can make, undo, warnings
     model/StyleEdits.kt          every change the style editor can make, plus the ready-made looks
     model/ColorMath.kt           colour arithmetic for the colour picker
-    model/LayoutRepository.kt    loads and saves the active keyboard
+    model/LayoutRepository.kt    the saved keyboards and which one is in use
     engine/KeyboardEngine.kt     the logic: shift, layers, what a tap types
     ui/KeyboardView.kt           draws a keyboard (shared by the keyboard and the app)
+    ui/LayoutScreen.kt           the layout editor
     ui/StyleScreen.kt            the style editor
+    ui/KeyboardsScreen.kt        the list of saved keyboards
     ui/ColorPickerDialog.kt      the colour picker
-    ui/Widgets.kt                small shared pieces: pills, colour rows, slider rows
-    ui/MainActivity.kt           home screen and navigation
+    ui/Widgets.kt                shared pieces: pills, rows, the text pop-up, auto-save
+    ui/MainActivity.kt           home screen, navigation, and all saving
     ime/KeyBuilderIme.kt         the Android keyboard service
 app/src/test/                    tests for the model and the engine
 ```
@@ -61,13 +83,15 @@ app/src/test/                    tests for the model and the engine
 `model` (except LayoutRepository) and `engine` contain no Android code, so their tests run on
 your computer in a second: right-click `app/src/test` > Run tests, or `./gradlew test`.
 
-The screens hold no data of their own. `MainActivity` holds the one keyboard being edited,
-each screen shows it and hands back a changed copy, and the rules for every change live in
-`StyleEdits.kt` where they are tested.
+The screens hold no data of their own. `MainActivity` holds the keyboards, each screen shows
+one and hands back a changed copy, and the rules for every change live in `LayoutEdits.kt`
+and `StyleEdits.kt` where they are tested. Because every edit makes a whole new copy, undo is
+just "go back to the previous copy".
 
-**Where your changes are saved:** the first change writes `active_layout.json` in the app's
-private storage. From then on that file is the keyboard, and `qwerty.json` is only the starting
-point. To start over completely, clear the app's storage (or use Reset for just the style).
+**Where your keyboards are saved:** one file per keyboard in a `keyboards` folder in the app's
+private storage, plus a setting for which one is in use. The keyboard saved by phase 2 is moved
+there automatically the first time this version runs. `qwerty.json` is only the starting point
+for new keyboards.
 
 ## The layout file
 
@@ -118,17 +142,18 @@ A mistake in the file produces a message such as
 
 ## How it was checked
 
-Phase 1 has been built and run. For phase 2, the model, the layout reader, the engine,
-the style rules and the colour arithmetic were compiled and their 42 tests passed. The new
-screens (style editor, colour picker) and the changes to the keyboard service were written
-without access to the Android build tools, so **phase 2 has not been built or run yet**.
-If the build stops, send the error text.
+Phases 1 and 2 have been built and run. For phase 3, everything without Android code (the
+layout reader, the engine, and the rules for layout edits, style edits, undo and warnings) was
+compiled and its 72 tests passed. The new screens (layout editor, keyboards list), the storage
+for several keyboards and the changes to the keyboard service were written without access to
+the Android build tools, so **phase 3 has not been built or run yet**. If the build stops,
+send the error text.
 
 ## Roadmap
 
-3. **Layout editor:** add, delete, move and resize keys and rows; extra layers; several saved keyboards
-4. **Special keys:** text snippets, long-press alternates, arrows, copy and paste, and a
-   "panel" key type that opens emoji, clipboard or GIFs, so those can sit wherever you like
+4. **Special keys:** long-press alternates, arrows, copy and paste, dragging keys with a finger,
+   and a "panel" key type that opens emoji, clipboard or GIFs, so those can sit wherever you like.
+   (Text snippets arrived early: they are the "Types a text" choice in the layout editor.)
 5. **Emoji panel:** categories, recents, skin tones. AndroidX ships a ready-made picker
    (`androidx.emoji2:emoji2-emojipicker`) that can be embedded, which makes this the quickest of the three
 6. **Clipboard panel**
@@ -137,12 +162,23 @@ If the build stops, send the error text.
      Entries marked sensitive (passwords) should be skipped
    - Images: copy the picture into the app's own storage when it is copied, then paste it with
      Android's "commit content" feature. That only works in apps that accept images in the text field
-7. **GIF panel:** search and send GIFs. Sending uses the same "commit content" path as clipboard
-   images, so it comes after them. Two things to decide first:
-   - It needs internet access, which the app does not have today. Either the app gains the
-     permission, or GIFs live in a separate optional add-on so the keyboard itself stays offline
-   - It needs a GIF provider and an API key. Google closed the Tenor API to outside developers in
-     2026; GIPHY and KLIPY are the usual alternatives
+7. **GIF panel:** search and send GIFs, using **GIPHY**. Sending uses the same "commit content"
+   path as clipboard images, so it comes after them.
+   - Why GIPHY: it is the largest GIF library and the longest-established provider. Google closed
+     the Tenor API to outside developers on 30 June 2026. KLIPY, the main alternative, says it
+     has 10M+ items, is newer, and can show ads inside search results
+   - Cost: a GIPHY beta key is free and allows 100 searches an hour, enough to build and use the
+     feature yourself. Releasing the app to many people needs a production key, which GIPHY
+     approves case by case and charges for
+   - Reviews are mixed for both: developers find GIPHY's search weaker than Tenor's was for
+     unusual searches and dislike the paid production key; KLIPY's search is liked but its
+     pricing at scale is unclear. The code will keep the provider behind one small interface so
+     it can be swapped
+   - Rules both providers set: requests must come from the phone itself, GIFs may not be stored
+     and re-served, and the panel must show the provider's name
+   - Still to decide: GIF search needs internet access, which the app does not have today. Either
+     the app gains the permission, or GIFs live in a separate optional add-on so the keyboard
+     itself stays offline
 8. **Polish:** vibration, key pop-ups, landscape, light and dark variants
 
 `targetSdk` is 34 for now. Targeting 35 forces edge-to-edge drawing, which needs extra

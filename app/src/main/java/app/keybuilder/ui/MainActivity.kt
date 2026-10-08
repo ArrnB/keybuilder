@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -41,8 +42,20 @@ import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
+import app.keybuilder.model.uniqueKeyboardId
+import app.keybuilder.model.uniqueName
 
-/** The app you open from the launcher: a home screen and the style editor. */
+private const val SCREEN_HOME = "home"
+private const val SCREEN_KEYS = "keys"
+private const val SCREEN_STYLE = "style"
+private const val SCREEN_KEYBOARDS = "keyboards"
+
+/**
+ * The app you open from the launcher.
+ *
+ * It holds the list of saved keyboards and which one is in use. Each screen is shown the
+ * data it needs and reports back what the user did; all saving happens here.
+ */
 class MainActivity : ComponentActivity() {
 
     private var status by mutableStateOf(ImeStatus())
@@ -50,28 +63,86 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val startingKeyboard = LayoutRepository.loadActive(this)
+
+        val context = this
+        val startingKeyboards = LayoutRepository.list(context)
+        val startingActive = LayoutRepository.activeId(context)
+            ?.takeIf { id -> startingKeyboards.any { it.id == id } }
+            ?: startingKeyboards.first().id.also { LayoutRepository.setActive(context, it) }
 
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                // The one keyboard being shown and edited. Screens receive it and hand back changed copies.
-                var keyboard by remember { mutableStateOf(startingKeyboard) }
-                var showStyle by rememberSaveable { mutableStateOf(false) }
+                var keyboards by remember { mutableStateOf(startingKeyboards) }
+                var activeId by remember { mutableStateOf(startingActive) }
+                var screen by rememberSaveable { mutableStateOf(SCREEN_HOME) }
 
-                if (showStyle) {
-                    StyleScreen(
-                        keyboard = keyboard,
-                        onChange = { keyboard = it },
-                        onSave = { LayoutRepository.saveActive(this@MainActivity, it) },
-                        onBack = { showStyle = false },
+                // The keyboard in use: the one you type with and the one the editors change.
+                val keyboard = keyboards.firstOrNull { it.id == activeId } ?: keyboards.first()
+
+                val replace: (KeyboardDef) -> Unit = { changed ->
+                    keyboards = keyboards.map { if (it.id == changed.id) changed else it }
+                }
+                val save: (KeyboardDef) -> Unit = { LayoutRepository.save(context, it) }
+                val goHome: () -> Unit = { screen = SCREEN_HOME }
+
+                // Adds a keyboard under a fresh id and a name nobody else has, and saves it.
+                val addCopyOf: (KeyboardDef, String) -> Unit = { source, wantedName ->
+                    val copy = source.copy(
+                        id = uniqueKeyboardId(keyboards.map { it.id }),
+                        name = uniqueName(keyboards.map { it.name }, wantedName),
                     )
-                } else {
-                    HomeScreen(
+                    LayoutRepository.save(context, copy)
+                    keyboards = keyboards + copy
+                }
+
+                when (screen) {
+                    SCREEN_KEYS -> LayoutScreen(keyboard = keyboard, onChange = replace, onSave = save, onBack = goHome)
+
+                    SCREEN_STYLE -> StyleScreen(keyboard = keyboard, onChange = replace, onSave = save, onBack = goHome)
+
+                    SCREEN_KEYBOARDS -> KeyboardsScreen(
+                        keyboards = keyboards,
+                        activeId = keyboard.id,
+                        onUse = { id ->
+                            LayoutRepository.setActive(context, id)
+                            activeId = id
+                        },
+                        onRename = { id, name ->
+                            val renamed = keyboards.firstOrNull { it.id == id }?.copy(name = name)
+                            if (renamed != null) {
+                                LayoutRepository.save(context, renamed)
+                                replace(renamed)
+                            }
+                        },
+                        onCopy = { id ->
+                            val source = keyboards.firstOrNull { it.id == id }
+                            if (source != null) addCopyOf(source, "${source.name} copy")
+                        },
+                        onDelete = { id ->
+                            val remaining = keyboards.filter { it.id != id }
+                            if (remaining.isNotEmpty()) {
+                                LayoutRepository.delete(context, id)
+                                if (id == keyboard.id) {
+                                    LayoutRepository.setActive(context, remaining.first().id)
+                                    activeId = remaining.first().id
+                                }
+                                keyboards = remaining
+                            }
+                        },
+                        onNew = {
+                            val builtIn = LayoutRepository.loadDefault(context)
+                            addCopyOf(builtIn, builtIn.name)
+                        },
+                        onBack = goHome,
+                    )
+
+                    else -> HomeScreen(
                         status = status,
                         keyboard = keyboard,
+                        keyboardCount = keyboards.size,
                         onOpenSettings = { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
                         onPickKeyboard = { inputMethodManager().showInputMethodPicker() },
-                        onOpenStyle = { showStyle = true },
+                        onOpen = { screen = it },
                     )
                 }
             }
@@ -104,12 +175,14 @@ private data class ImeStatus(val enabled: Boolean = false, val selected: Boolean
 private fun HomeScreen(
     status: ImeStatus,
     keyboard: KeyboardDef,
+    keyboardCount: Int,
     onOpenSettings: () -> Unit,
     onPickKeyboard: () -> Unit,
-    onOpenStyle: () -> Unit,
+    onOpen: (String) -> Unit,
 ) {
     var sample by rememberSaveable { mutableStateOf("") }
-    var previewState by remember { mutableStateOf(KeyboardEngine.initialState(keyboard)) }
+    // remember(keyboard.id): switching to another keyboard starts the preview on its first layer.
+    var previewState by remember(keyboard.id) { mutableStateOf(KeyboardEngine.initialState(keyboard)) }
 
     Scaffold { inner ->
         Column(
@@ -161,7 +234,7 @@ private fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text("Your keyboard: ${keyboard.name}", style = MaterialTheme.typography.titleMedium)
+            Text("In use: ${keyboard.name}", style = MaterialTheme.typography.titleMedium)
             KeyboardView(
                 def = keyboard,
                 state = previewState,
@@ -170,10 +243,16 @@ private fun HomeScreen(
                 },
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)),
             )
-            Button(onClick = onOpenStyle) { Text("Change the style") }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { onOpen(SCREEN_KEYS) }) { Text("Edit keys") }
+                Button(onClick = { onOpen(SCREEN_STYLE) }) { Text("Edit style") }
+            }
+            OutlinedButton(onClick = { onOpen(SCREEN_KEYBOARDS) }) {
+                Text("My keyboards ($keyboardCount)")
+            }
             Text(
-                "Colours, shape, sizes and letters. Changes are saved as you make them and the " +
-                    "real keyboard picks them up the next time it opens.",
+                "Changes are saved as you make them, and the real keyboard shows them the next time it opens.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

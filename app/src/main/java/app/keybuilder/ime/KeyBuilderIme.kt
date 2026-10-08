@@ -52,7 +52,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private var state by mutableStateOf(KeyboardState(layerId = ""))
 
     /** Which saved version of the layout is on screen, see LayoutRepository.activeVersion. */
-    private var loadedVersion = -1L
+    private var loadedVersion: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -64,7 +64,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     /**
      * Loads the keyboard the first time, and again whenever the app has saved a new version
-     * (for example after changing colours in the style screen). Returns true if it reloaded.
+     * or switched to another keyboard. Returns true if it reloaded.
      */
     private fun reloadIfChanged(): Boolean {
         val version = LayoutRepository.activeVersion(this)

@@ -25,12 +25,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,7 +56,6 @@ import app.keybuilder.model.withKeyStyle
 import app.keybuilder.model.withLook
 import app.keybuilder.model.withoutKeyStyles
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 
 private const val TAB_THEME = 0
 private const val TAB_KEYS = 1
@@ -180,27 +176,6 @@ fun StyleScreen(
                 TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-/** Saves a little while after the last change, and once more when the screen closes. */
-@Composable
-private fun AutoSave(keyboard: KeyboardDef, onSave: (KeyboardDef) -> Unit) {
-    var saved by remember { mutableStateOf(keyboard) }
-    val latest by rememberUpdatedState(keyboard)
-    val save by rememberUpdatedState(onSave)
-
-    LaunchedEffect(keyboard) {
-        if (keyboard != saved) {
-            delay(400) // dragging a slider restarts this wait, so only the final value is written
-            save(keyboard)
-            saved = keyboard
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            if (latest != saved) save(latest)
-        }
     }
 }
 

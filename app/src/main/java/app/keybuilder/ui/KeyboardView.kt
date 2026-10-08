@@ -109,6 +109,7 @@ fun KeyboardView(
                             palette = palette,
                             shift = shift,
                             selected = pos == selected,
+                            editing = onKeyAt != null,
                             // While picking keys, backspace must not start repeating.
                             repeats = onKeyAt == null && keyDef.action == KeyAction.Backspace,
                             onTap = { if (onKeyAt != null) onKeyAt(pos) else onKey(keyDef) },
@@ -127,10 +128,13 @@ private fun RowScope.KeyCell(
     palette: Palette,
     shift: ShiftState,
     selected: Boolean,
+    editing: Boolean,
     repeats: Boolean,
     onTap: () -> Unit,
 ) {
-    if (keyDef.look == KeyLook.SPACER) {
+    // A gap is invisible when typing. In the editor it is drawn as a faint outline so it can be picked.
+    val isGap = keyDef.look == KeyLook.SPACER
+    if (isGap && !editing) {
         Spacer(Modifier.weight(keyDef.width))
         return
     }
@@ -143,11 +147,20 @@ private fun RowScope.KeyCell(
         KeyLook.FUNCTION -> palette.function
         else -> palette.key
     }
-    val background = if (pressed) palette.pressed else restingColor
+    val background = when {
+        isGap -> Color.Transparent
+        pressed -> palette.pressed
+        else -> restingColor
+    }
     val foreground = keyDef.style?.textColor?.toColorOrNull()
         ?: if (keyDef.look == KeyLook.ACCENT) palette.accentText else palette.text
     val shape = RoundedCornerShape(theme.cornerRadiusDp.dp)
-    val label = keyDef.displayLabel(shift)
+    val label = if (isGap) "" else keyDef.displayLabel(shift)
+    val outline: Modifier = when {
+        isGap -> Modifier.border(1.dp, palette.selection.copy(alpha = 0.35f), shape)
+        theme.borderWidthDp > 0f -> Modifier.border(theme.borderWidthDp.dp, palette.border, shape)
+        else -> Modifier
+    }
 
     // Outer box = the touch area (it includes the gap, so taps between keys still count).
     Box(
@@ -190,10 +203,7 @@ private fun RowScope.KeyCell(
             modifier = Modifier
                 .fillMaxSize()
                 .background(background, shape)
-                .then(
-                    if (theme.borderWidthDp > 0f) Modifier.border(theme.borderWidthDp.dp, palette.border, shape)
-                    else Modifier
-                )
+                .then(outline)
                 .then(if (selected) Modifier.border(2.5.dp, palette.selection, shape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
@@ -212,7 +222,7 @@ private fun RowScope.KeyCell(
                         fontWeight = if (theme.bold) FontWeight.Bold else FontWeight.Normal,
                     ),
                 )
-            } else {
+            } else if (!isGap) {
                 KeyIcon(keyDef.action, shift, foreground, sizeDp = theme.fontSizeSp * 1.05f)
             }
         }
