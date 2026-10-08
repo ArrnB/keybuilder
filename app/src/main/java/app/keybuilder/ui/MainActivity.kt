@@ -42,7 +42,7 @@ import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 
-/** The screen you see when you open the app. For now: setup help, a test box and a preview. */
+/** The app you open from the launcher: a home screen and the style editor. */
 class MainActivity : ComponentActivity() {
 
     private var status by mutableStateOf(ImeStatus())
@@ -50,15 +50,30 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val keyboard = LayoutRepository.loadDefault(this)
+        val startingKeyboard = LayoutRepository.loadActive(this)
+
         setContent {
             MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                SetupScreen(
-                    status = status,
-                    keyboard = keyboard,
-                    onOpenSettings = { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
-                    onPickKeyboard = { inputMethodManager().showInputMethodPicker() },
-                )
+                // The one keyboard being shown and edited. Screens receive it and hand back changed copies.
+                var keyboard by remember { mutableStateOf(startingKeyboard) }
+                var showStyle by rememberSaveable { mutableStateOf(false) }
+
+                if (showStyle) {
+                    StyleScreen(
+                        keyboard = keyboard,
+                        onChange = { keyboard = it },
+                        onSave = { LayoutRepository.saveActive(this@MainActivity, it) },
+                        onBack = { showStyle = false },
+                    )
+                } else {
+                    HomeScreen(
+                        status = status,
+                        keyboard = keyboard,
+                        onOpenSettings = { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
+                        onPickKeyboard = { inputMethodManager().showInputMethodPicker() },
+                        onOpenStyle = { showStyle = true },
+                    )
+                }
             }
         }
     }
@@ -86,11 +101,12 @@ class MainActivity : ComponentActivity() {
 private data class ImeStatus(val enabled: Boolean = false, val selected: Boolean = false)
 
 @Composable
-private fun SetupScreen(
+private fun HomeScreen(
     status: ImeStatus,
     keyboard: KeyboardDef,
     onOpenSettings: () -> Unit,
     onPickKeyboard: () -> Unit,
+    onOpenStyle: () -> Unit,
 ) {
     var sample by rememberSaveable { mutableStateOf("") }
     var previewState by remember { mutableStateOf(KeyboardEngine.initialState(keyboard)) }
@@ -107,28 +123,35 @@ private fun SetupScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("KeyBuilder", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "Two steps to start using the keyboard, then try it in the box below.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
 
-            StepCard(
-                title = "1. Turn it on",
-                body = "Android keeps every new keyboard switched off until you allow it. " +
-                    "It shows the same warning for all keyboards. This app has no internet access.",
-                done = status.enabled,
-                buttonText = "Open keyboard settings",
-                buttonEnabled = true,
-                onClick = onOpenSettings,
-            )
-            StepCard(
-                title = "2. Switch to it",
-                body = "Pick KeyBuilder from the list of keyboards.",
-                done = status.selected,
-                buttonText = "Choose keyboard",
-                buttonEnabled = status.enabled,
-                onClick = onPickKeyboard,
-            )
+            if (status.enabled && status.selected) {
+                Text(
+                    "KeyBuilder is switched on and is your current keyboard.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            } else {
+                Text(
+                    "Two steps to start using the keyboard, then try it in the box below.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                StepCard(
+                    title = "1. Turn it on",
+                    body = "Android keeps every new keyboard switched off until you allow it. " +
+                        "It shows the same warning for all keyboards. This app has no internet access.",
+                    done = status.enabled,
+                    buttonText = "Open keyboard settings",
+                    buttonEnabled = true,
+                    onClick = onOpenSettings,
+                )
+                StepCard(
+                    title = "2. Switch to it",
+                    body = "Pick KeyBuilder from the list of keyboards.",
+                    done = status.selected,
+                    buttonText = "Choose keyboard",
+                    buttonEnabled = status.enabled,
+                    onClick = onPickKeyboard,
+                )
+            }
 
             OutlinedTextField(
                 value = sample,
@@ -138,7 +161,7 @@ private fun SetupScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text("Current layout: ${keyboard.name}", style = MaterialTheme.typography.titleMedium)
+            Text("Your keyboard: ${keyboard.name}", style = MaterialTheme.typography.titleMedium)
             KeyboardView(
                 def = keyboard,
                 state = previewState,
@@ -147,9 +170,10 @@ private fun SetupScreen(
                 },
                 modifier = Modifier.clip(RoundedCornerShape(12.dp)),
             )
+            Button(onClick = onOpenStyle) { Text("Change the style") }
             Text(
-                "This preview is drawn by the same code as the real keyboard. " +
-                    "Shift and the layer keys work here; it does not type.",
+                "Colours, shape, sizes and letters. Changes are saved as you make them and the " +
+                    "real keyboard picks them up the next time it opens.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

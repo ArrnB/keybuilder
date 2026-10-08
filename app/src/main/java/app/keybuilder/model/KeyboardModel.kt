@@ -96,7 +96,13 @@ data class Theme(
     val keyHeightDp: Float = 52f,
     val keyGapDp: Float = 6f,
     val fontSizeSp: Float = 21f,
+    /** One of FONT_FAMILIES. */
+    val fontFamily: String = "sans",
+    val bold: Boolean = false,
 )
+
+/** The letter styles a theme can use, in the order they are offered. */
+val FONT_FAMILIES = listOf("sans", "serif", "mono")
 
 /**
  * Turns "#RRGGBB" or "#AARRGGBB" into an ARGB number, or null if the text is not a colour.

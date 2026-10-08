@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.floatOrNull
@@ -183,6 +184,10 @@ object LayoutJson {
             keyHeightDp = (obj.number("keyHeightDp", where) ?: d.keyHeightDp).coerceIn(28f, 96f),
             keyGapDp = (obj.number("keyGapDp", where) ?: d.keyGapDp).coerceIn(0f, 16f),
             fontSizeSp = (obj.number("fontSizeSp", where) ?: d.fontSizeSp).coerceIn(8f, 48f),
+            fontFamily = obj.string("fontFamily", where)?.also {
+                if (it !in FONT_FAMILIES) fail(where, "\"fontFamily\" must be one of ${FONT_FAMILIES.joinToString()}, not \"$it\"")
+            } ?: d.fontFamily,
+            bold = obj.boolean("bold", where) ?: d.bold,
         )
     }
 
@@ -265,6 +270,8 @@ object LayoutJson {
         put("keyHeightDp", t.keyHeightDp)
         put("keyGapDp", t.keyGapDp)
         put("fontSizeSp", t.fontSizeSp)
+        put("fontFamily", t.fontFamily)
+        put("bold", t.bold)
     }
 
     // ---------------------------------------------------------------- helpers
@@ -285,6 +292,12 @@ object LayoutJson {
         val el = field(name) ?: return null
         val value = (el as? JsonPrimitive)?.takeUnless { it.isString }?.floatOrNull
         return value ?: fail(where, "\"$name\" must be a number")
+    }
+
+    private fun JsonObject.boolean(name: String, where: String): Boolean? {
+        val el = field(name) ?: return null
+        val value = (el as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+        return value ?: fail(where, "\"$name\" must be true or false")
     }
 
     private fun JsonObject.color(name: String, where: String): String? {

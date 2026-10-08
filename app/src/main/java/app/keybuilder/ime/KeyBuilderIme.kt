@@ -51,14 +51,29 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private var keyboard by mutableStateOf<KeyboardDef?>(null)
     private var state by mutableStateOf(KeyboardState(layerId = ""))
 
+    /** Which saved version of the layout is on screen, see LayoutRepository.activeVersion. */
+    private var loadedVersion = -1L
+
     override fun onCreate() {
         super.onCreate()
         savedStateController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
 
-        val loaded = LayoutRepository.loadDefault(this)
+        reloadIfChanged()
+    }
+
+    /**
+     * Loads the keyboard the first time, and again whenever the app has saved a new version
+     * (for example after changing colours in the style screen). Returns true if it reloaded.
+     */
+    private fun reloadIfChanged(): Boolean {
+        val version = LayoutRepository.activeVersion(this)
+        if (keyboard != null && version == loadedVersion) return false
+        val loaded = LayoutRepository.loadActive(this)
+        loadedVersion = version
         keyboard = loaded
         state = KeyboardEngine.initialState(loaded)
+        return true
     }
 
     override fun onCreateInputView(): View {
@@ -79,7 +94,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
-        if (!restarting) {
+        val reloaded = reloadIfChanged()
+        if (!restarting && !reloaded) {
             keyboard?.let { state = KeyboardEngine.initialState(it) }
         }
         syncAutoCaps()

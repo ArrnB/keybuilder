@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,8 +49,10 @@ import app.keybuilder.engine.displayLabel
 import app.keybuilder.model.KeyAction
 import app.keybuilder.model.KeyDef
 import app.keybuilder.model.KeyLook
+import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.Theme
+import app.keybuilder.model.isDarkColor
 import app.keybuilder.model.parseHexColor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -64,6 +68,9 @@ private const val REPEAT_EVERY_MS = 50L
  * keyboard (KeyBuilderIme) and by previews inside the app, so they can never look different.
  *
  * It only draws and reports taps. What a tap means is decided by KeyboardEngine.
+ *
+ * The editor uses two extras: give [onKeyAt] and taps report WHERE the key is instead of
+ * typing (used to pick a key to edit), and [selected] draws a ring around one key.
  */
 @Composable
 fun KeyboardView(
@@ -71,6 +78,8 @@ fun KeyboardView(
     state: KeyboardState,
     onKey: (KeyDef) -> Unit,
     modifier: Modifier = Modifier,
+    selected: KeyPos? = null,
+    onKeyAt: ((KeyPos) -> Unit)? = null,
 ) {
     val theme = def.theme
     val palette = remember(theme) { Palette(theme) }
@@ -86,14 +95,24 @@ fun KeyboardView(
     ) {
         // key(...) throws away per-key state (like "is pressed") when the layer changes.
         key(layer.id) {
-            for (row in layer.rows) {
+            layer.rows.forEachIndexed { rowIndex, row ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height((theme.keyHeightDp * row.height).dp),
                 ) {
-                    for (keyDef in row.keys) {
-                        KeyCell(keyDef, theme, palette, shift, onKey)
+                    row.keys.forEachIndexed { keyIndex, keyDef ->
+                        val pos = KeyPos(layer.id, rowIndex, keyIndex)
+                        KeyCell(
+                            keyDef = keyDef,
+                            theme = theme,
+                            palette = palette,
+                            shift = shift,
+                            selected = pos == selected,
+                            // While picking keys, backspace must not start repeating.
+                            repeats = onKeyAt == null && keyDef.action == KeyAction.Backspace,
+                            onTap = { if (onKeyAt != null) onKeyAt(pos) else onKey(keyDef) },
+                        )
                     }
                 }
             }
@@ -107,7 +126,9 @@ private fun RowScope.KeyCell(
     theme: Theme,
     palette: Palette,
     shift: ShiftState,
-    onKey: (KeyDef) -> Unit,
+    selected: Boolean,
+    repeats: Boolean,
+    onTap: () -> Unit,
 ) {
     if (keyDef.look == KeyLook.SPACER) {
         Spacer(Modifier.weight(keyDef.width))
@@ -115,9 +136,7 @@ private fun RowScope.KeyCell(
     }
 
     var pressed by remember { mutableStateOf(false) }
-    val currentKey by rememberUpdatedState(keyDef)
-    val currentOnKey by rememberUpdatedState(onKey)
-    val repeats = keyDef.action == KeyAction.Backspace
+    val currentOnTap by rememberUpdatedState(onTap)
 
     val restingColor = keyDef.style?.background?.toColorOrNull() ?: when (keyDef.look) {
         KeyLook.ACCENT -> palette.accent
@@ -144,11 +163,11 @@ private fun RowScope.KeyCell(
                         var repeatJob: Job? = null
                         if (repeats) {
                             // Repeating keys act as soon as they are touched, then keep going while held.
-                            currentOnKey(currentKey)
+                            currentOnTap()
                             repeatJob = scope.launch {
                                 delay(REPEAT_START_MS)
                                 while (true) {
-                                    currentOnKey(currentKey)
+                                    currentOnTap()
                                     delay(REPEAT_EVERY_MS)
                                 }
                             }
@@ -159,7 +178,7 @@ private fun RowScope.KeyCell(
                         if (up != null) {
                             up.consume()
                             // Normal keys act when the finger lifts; sliding off the key cancels.
-                            if (!repeats) currentOnKey(currentKey)
+                            if (!repeats) currentOnTap()
                         }
                     }
                 }
@@ -174,7 +193,8 @@ private fun RowScope.KeyCell(
                 .then(
                     if (theme.borderWidthDp > 0f) Modifier.border(theme.borderWidthDp.dp, palette.border, shape)
                     else Modifier
-                ),
+                )
+                .then(if (selected) Modifier.border(2.5.dp, palette.selection, shape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             if (label.isNotEmpty()) {
@@ -184,7 +204,13 @@ private fun RowScope.KeyCell(
                 BasicText(
                     text = label,
                     maxLines = 1,
-                    style = TextStyle(color = foreground, fontSize = fontSize.sp, textAlign = TextAlign.Center),
+                    style = TextStyle(
+                        color = foreground,
+                        fontSize = fontSize.sp,
+                        textAlign = TextAlign.Center,
+                        fontFamily = palette.fontFamily,
+                        fontWeight = if (theme.bold) FontWeight.Bold else FontWeight.Normal,
+                    ),
                 )
             } else {
                 KeyIcon(keyDef.action, shift, foreground, sizeDp = theme.fontSizeSp * 1.05f)
@@ -269,6 +295,16 @@ private class Palette(theme: Theme) {
     val text = theme.textColor.toColorOrNull() ?: Color.White
     val accentText = theme.accentTextColor.toColorOrNull() ?: Color.White
     val border = theme.borderColor.toColorOrNull() ?: Color.Transparent
+
+    /** The ring around a selected key: white on dark keyboards, black on light ones. */
+    val selection = if (isDarkColor(parseHexColor(theme.background) ?: 0)) Color.White else Color.Black
+
+    val fontFamily: FontFamily = when (theme.fontFamily) {
+        "serif" -> FontFamily.Serif
+        "mono" -> FontFamily.Monospace
+        else -> FontFamily.SansSerif
+    }
 }
 
-private fun String.toColorOrNull(): Color? = parseHexColor(this)?.let { Color(it) }
+/** "#RRGGBB" text as a Compose colour, or null if the text is not a colour. */
+internal fun String.toColorOrNull(): Color? = parseHexColor(this)?.let { Color(it) }
