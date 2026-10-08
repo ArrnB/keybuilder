@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KeyBuilder</string>
+    <string name="ime_name">KeyBuilder</string>
+    <string name="subtype_label">Custom layout</string>
+</resources>

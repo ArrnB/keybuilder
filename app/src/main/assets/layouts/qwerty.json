@@ -1,0 +1,84 @@
+{
+  "format": 1,
+  "id": "qwerty",
+  "name": "QWERTY",
+  "startLayer": "letters",
+  "theme": {
+    "background": "#1B1D22",
+    "keyColor": "#343842",
+    "functionKeyColor": "#262930",
+    "accentColor": "#4C8DFF",
+    "keyPressedColor": "#565C6B",
+    "textColor": "#FFFFFF",
+    "accentTextColor": "#FFFFFF",
+    "borderColor": "#00000000",
+    "borderWidthDp": 0,
+    "cornerRadiusDp": 8,
+    "keyHeightDp": 52,
+    "keyGapDp": 6,
+    "fontSizeSp": 21
+  },
+  "layers": [
+    {
+      "id": "letters",
+      "rows": [
+        ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+        [
+          { "look": "spacer", "width": 0.5 },
+          "a", "s", "d", "f", "g", "h", "j", "k", "l",
+          { "look": "spacer", "width": 0.5 }
+        ],
+        [
+          { "action": "shift", "width": 1.5, "look": "function" },
+          "z", "x", "c", "v", "b", "n", "m",
+          { "action": "backspace", "width": 1.5, "look": "function" }
+        ],
+        [
+          { "label": "?123", "action": { "type": "layer", "to": "symbols" }, "width": 1.5, "look": "function" },
+          { "label": ",", "look": "function" },
+          { "action": "space", "width": 5 },
+          { "label": ".", "look": "function" },
+          { "action": "enter", "width": 1.5, "look": "accent" }
+        ]
+      ]
+    },
+    {
+      "id": "symbols",
+      "rows": [
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+        ["@", "#", "₹", "_", "&", "-", "+", "(", ")", "/"],
+        [
+          { "label": "=\\<", "action": { "type": "layer", "to": "symbols2" }, "width": 1.5, "look": "function" },
+          "*", "\"", "'", ":", ";", "!", "?",
+          { "action": "backspace", "width": 1.5, "look": "function" }
+        ],
+        [
+          { "label": "ABC", "action": { "type": "layer", "to": "letters" }, "width": 1.5, "look": "function" },
+          { "label": ",", "look": "function" },
+          { "action": "space", "width": 5 },
+          { "label": ".", "look": "function" },
+          { "action": "enter", "width": 1.5, "look": "accent" }
+        ]
+      ]
+    },
+    {
+      "id": "symbols2",
+      "rows": [
+        ["~", "`", "|", "•", "√", "π", "÷", "×", "§", "∆"],
+        ["£", "€", "$", "¢", "^", "°", "=", "{", "}", "\\"],
+        [
+          { "label": "?123", "action": { "type": "layer", "to": "symbols" }, "width": 1.5, "look": "function" },
+          "%", "©", "®", "™", "✓", "[", "]",
+          { "action": "backspace", "width": 1.5, "look": "function" }
+        ],
+        [
+          { "label": "ABC", "action": { "type": "layer", "to": "letters" }, "width": 1.5, "look": "function" },
+          { "label": "<", "look": "function" },
+          { "action": "space", "width": 5 },
+          { "label": ">", "look": "function" },
+          { "action": "enter", "width": 1.5, "look": "accent" }
+        ]
+      ]
+    }
+  ]
+}
