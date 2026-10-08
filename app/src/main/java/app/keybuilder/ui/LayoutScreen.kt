@@ -3,13 +3,16 @@ package app.keybuilder.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +66,8 @@ import app.keybuilder.model.moveRow
 import app.keybuilder.model.panelName
 import app.keybuilder.model.parseAlternatesText
 import app.keybuilder.model.renameLayer
+import app.keybuilder.model.replaceKey
+import app.keybuilder.model.swapKeys
 import app.keybuilder.model.warnings
 import app.keybuilder.model.withActionKind
 import app.keybuilder.model.withAddedAlternate
@@ -71,7 +76,6 @@ import app.keybuilder.model.withArrowDirection
 import app.keybuilder.model.withCommand
 import app.keybuilder.model.withKeyLabel
 import app.keybuilder.model.withKeyLook
-import app.keybuilder.model.withKeySymbol
 import app.keybuilder.model.withKeyText
 import app.keybuilder.model.withKeyWidth
 import app.keybuilder.model.withLayerTarget
@@ -84,7 +88,7 @@ import app.keybuilder.model.withStartLayer
 
 /** The pop-ups this screen can show. Only one is open at a time. */
 private enum class LayoutDialog {
-    LABEL, SHIFT_LABEL, KEY_TEXT, ALTERNATES, SYMBOL_FOR_KEY, SYMBOL_FOR_CHOICE, NEW_LAYER, RENAME_LAYER, DELETE_LAYER,
+    REPLACE_KEY, LABEL, SHIFT_LABEL, KEY_TEXT, ALTERNATES, SYMBOL_FOR_CHOICE, NEW_LAYER, RENAME_LAYER, DELETE_LAYER,
 }
 
 /**
@@ -106,6 +110,8 @@ fun LayoutScreen(
     var selected by remember { mutableStateOf<KeyPos?>(null) }
     var history by remember { mutableStateOf(EditHistory()) }
     var dialog by remember { mutableStateOf<LayoutDialog?>(null) }
+    /** The first key of a swap that is waiting for its partner to be tapped. */
+    var swapFrom by remember { mutableStateOf<KeyPos?>(null) }
 
     BackHandler(onBack = onBack)
     AutoSave(keyboard, onSave)
@@ -130,7 +136,16 @@ fun LayoutScreen(
         layerId = id
         selected = null
     }
-    val pickKey: (KeyPos) -> Unit = { selected = it }
+    // A tap on a key in the preview normally selects it. After "Swap with another key" the
+    // next tap instead names the key to trade places with, on this layer or any other.
+    val pickKey: (KeyPos) -> Unit = { tapped ->
+        val from = swapFrom
+        if (from != null) {
+            commit(null, keyboard.swapKeys(from, tapped))
+            swapFrom = null
+        }
+        selected = tapped
+    }
     val closeDialog: () -> Unit = { dialog = null }
 
     Scaffold { inner ->
@@ -182,9 +197,20 @@ fun LayoutScreen(
                     onNumbersOnTop = { commit(null, keyboard.withNumbersOnTopRow(layer.id)) },
                 )
 
-                if (pos == null || keyDef == null) {
+                val swapping = swapFrom
+                if (swapping != null) {
                     Text(
-                        "Tap a key in the preview below to change it, move it, or add keys next to it.",
+                        "Swapping \"${keyboard.keyAt(swapping)?.describe() ?: "key"}\": now tap the key it should " +
+                            "trade places with. It can be on another layer; choose the layer above first.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    OutlinedButton(onClick = { swapFrom = null }) { Text("Cancel the swap") }
+                } else if (pos == null || keyDef == null) {
+                    Text(
+                        "Tap a key in the preview below. Then \"Replace this key\" turns it into any letter, " +
+                            "number, symbol or special key, and \"Swap\" makes it trade places with another key. " +
+                            "Nothing is off limits: any key can go anywhere.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -197,6 +223,7 @@ fun LayoutScreen(
                         commit = commit,
                         applyEdit = applyEdit,
                         openDialog = { dialog = it },
+                        onSwap = { swapFrom = pos },
                     )
                 }
             }
@@ -244,12 +271,13 @@ fun LayoutScreen(
             },
         )
     }
-    if (open == LayoutDialog.SYMBOL_FOR_KEY && pos != null) {
-        SymbolPickerDialog(
-            title = "Put on the key",
+    if (open == LayoutDialog.REPLACE_KEY && pos != null && keyDef != null) {
+        KeyPickerDialog(
+            keyboard = keyboard,
+            title = "Replace \"${keyDef.describe()}\" with",
             onDismiss = closeDialog,
-            onPick = { symbol ->
-                commit(null, keyboard.withKeySymbol(pos, symbol))
+            onPick = { replacement ->
+                commit(null, keyboard.replaceKey(pos, replacement))
                 closeDialog()
             },
         )
@@ -405,6 +433,7 @@ private fun KeyEditor(
     commit: (String?, KeyboardDef) -> Unit,
     applyEdit: (Edit) -> Unit,
     openDialog: (LayoutDialog) -> Unit,
+    onSwap: () -> Unit,
 ) {
     val row = layer.rows.getOrNull(pos.row) ?: return
     val kind = keyDef.action.kind()
@@ -413,6 +442,17 @@ private fun KeyEditor(
     val lastIndex = row.keys.size - 1
 
     SectionTitle("Selected key: ${keyDef.describe()}")
+    // The two main things to do with a key, first and biggest.
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { openDialog(LayoutDialog.REPLACE_KEY) }) { Text("Replace this key") }
+        OutlinedButton(onClick = onSwap) { Text("Swap with another") }
+    }
+    Text(
+        "Replace: pick any letter, number, symbol or special key to put here instead. " +
+            "Swap: tap a second key and the two trade places.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     ScrollRow {
         Pill("Move left", selected = false, onClick = { applyEdit(keyboard.moveKey(pos, -1)) }, enabled = pos.index > 0)
         Pill("Move right", selected = false, onClick = { applyEdit(keyboard.moveKey(pos, 1)) }, enabled = pos.index < lastIndex)
@@ -420,8 +460,23 @@ private fun KeyEditor(
         Pill("Move down", selected = false, onClick = { applyEdit(keyboard.moveKeyToRow(pos, 1)) }, enabled = pos.row < lastRow)
     }
     ScrollRow {
-        Pill("Add key before", selected = false, onClick = { applyEdit(keyboard.insertKey(pos, after = false)) })
-        Pill("Add key after", selected = false, onClick = { applyEdit(keyboard.insertKey(pos, after = true)) })
+        // A new key is selected straight away and the picker opens, so you choose what it is.
+        Pill(
+            text = "Add key before",
+            selected = false,
+            onClick = {
+                applyEdit(keyboard.insertKey(pos, after = false))
+                openDialog(LayoutDialog.REPLACE_KEY)
+            },
+        )
+        Pill(
+            text = "Add key after",
+            selected = false,
+            onClick = {
+                applyEdit(keyboard.insertKey(pos, after = true))
+                openDialog(LayoutDialog.REPLACE_KEY)
+            },
+        )
         Pill("Copy", selected = false, onClick = { applyEdit(keyboard.duplicateKey(pos)) })
         Pill("Delete", selected = false, onClick = { applyEdit(keyboard.deleteKey(pos)) }, enabled = keyboard.canDeleteKey(pos))
     }
@@ -449,9 +504,8 @@ private fun KeyEditor(
                 onClick = { openDialog(LayoutDialog.ALTERNATES) },
             )
         }
-        // Pick from a catalogue instead of typing: any letter, number, punctuation mark or symbol.
+        // Long-press choices can also be picked from the catalogue instead of typed.
         ScrollRow {
-            Pill("Pick a letter or symbol", selected = false, onClick = { openDialog(LayoutDialog.SYMBOL_FOR_KEY) })
             if (kind != ActionKind.BACKSPACE && kind != ActionKind.ARROW) {
                 Pill(
                     text = "Add choices from symbols",

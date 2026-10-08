@@ -25,6 +25,10 @@ import app.keybuilder.model.insertKey
 import app.keybuilder.model.keyAt
 import app.keybuilder.model.parseAlternatesText
 import app.keybuilder.model.renameLayer
+import app.keybuilder.model.replaceKey
+import app.keybuilder.model.specialKeys
+import app.keybuilder.model.swapKeys
+import app.keybuilder.model.typingKey
 import app.keybuilder.model.withActionKind
 import app.keybuilder.model.withAddedAlternate
 import app.keybuilder.model.withAlternates
@@ -166,6 +170,20 @@ class TypingFeaturesTest {
         assertEquals(160f, KeyboardEngine.resizePanel(200f, -40f, 300f), 0.01f)
         assertEquals(0f, KeyboardEngine.resizePanel(0f, 100f, -50f), 0.01f)     // a screen too small to grow
         assertEquals(101f, KeyboardEngine.resizePanel(1f, 100f, 300f, step = 0f), 0.01f)
+    }
+
+    @Test
+    fun aDraggedPanelReportsItsRealEdges() {
+        // The view is 600 tall and starts 40 below the top of the window. The normal keyboard
+        // is 250 high; the panel has been dragged to 400.
+        val (contentTop, shownTop) = KeyboardEngine.panelInsetTops(viewTop = 40, viewHeight = 600, basePx = 250f, shownPx = 400f)
+        assertEquals(40 + 600 - 250, contentTop) // the app is laid out as if only the keyboard were there
+        assertEquals(40 + 600 - 400, shownTop)   // touches above the panel's top go to the app
+        // Not dragged: both edges are the same.
+        assertEquals(390 to 390, KeyboardEngine.panelInsetTops(40, 600, 250f, 250f))
+        // Nonsense sizes never point outside the view.
+        assertEquals(40 to 40, KeyboardEngine.panelInsetTops(40, 600, 9000f, 9000f))
+        assertEquals(640 to 640, KeyboardEngine.panelInsetTops(40, 600, -5f, 0f))
     }
 
     @Test
@@ -382,6 +400,86 @@ class TypingFeaturesTest {
         repeat(50) { many = addRecentEmoji(many, "e$it", limit = 32) }
         assertEquals(32, many.size)
         assertEquals("e49", many.first())
+    }
+
+    @Test
+    fun stickersComeFromTheirOwnAddress() {
+        assertTrue(Giphy.trendingUrl("k", stickers = true).startsWith("https://api.giphy.com/v1/stickers/trending?api_key=k&"))
+        assertTrue(Giphy.searchUrl("k", "cat", stickers = true).startsWith("https://api.giphy.com/v1/stickers/search?api_key=k&q=cat&"))
+        assertTrue(Giphy.searchUrl("k", "cat", offset = 24, stickers = true).endsWith("&offset=24"))
+        assertTrue(Giphy.trendingUrl("k").contains("/v1/gifs/"))
+    }
+
+    // ---------------------------------------------------------------- any key anywhere
+
+    @Test
+    fun aLetterCanBecomeAnySymbol() {
+        val a = KeyPos("letters", 1, 1)
+        assertEquals("a", def.keyAt(a)!!.label)
+        val changed = def.replaceKey(a, typingKey("π"))
+        val key = changed.keyAt(a)!!
+        assertEquals("π", key.label)
+        assertEquals(listOf<Effect>(Effect.Commit("π")), KeyboardEngine.press(changed, start, key, 0).effects)
+        assertEquals("asdfghjkl".replace("a", "π"), changed.layer("letters")!!.rows[1].keys.joinToString("") { it.label })
+        assertEquals(changed, LayoutJson.parse(LayoutJson.toJson(changed)))
+        // And a symbol can become a letter again.
+        assertEquals(def, changed.replaceKey(a, typingKey("a")))
+    }
+
+    @Test
+    fun anyKeyCanGoAnywhereAndThePlaceKeepsItsWidth() {
+        val space = KeyPos("letters", 3, 2)
+        val shift = KeyPos("letters", 2, 0)
+        assertEquals(5f, def.keyAt(space)!!.width)
+
+        // A letter where the space bar was: still 5 wide, types the letter.
+        val letter = def.replaceKey(space, typingKey("x"))
+        assertEquals(5f, letter.keyAt(space)!!.width)
+        assertEquals(KeyAction.TypeLabel, letter.keyAt(space)!!.action)
+
+        // Every special key can replace an ordinary letter, and the result still saves and loads.
+        for (template in def.specialKeys()) {
+            val changed = def.replaceKey(q, template.key)
+            assertEquals(template.name, template.key.action, changed.keyAt(q)!!.action)
+            assertEquals(template.name, 1f, changed.keyAt(q)!!.width)
+            assertEquals(template.name, changed, LayoutJson.parse(LayoutJson.toJson(changed)))
+        }
+        // Old extras do not leak into the new key.
+        val fancy = def.withAlternates(shift, listOf("x")).replaceKey(shift, typingKey("π"))
+        assertTrue(fancy.keyAt(shift)!!.alternates.isEmpty())
+        assertEquals(KeyLook.NORMAL, fancy.keyAt(shift)!!.look)
+        assertSame(def, def.replaceKey(KeyPos("nope", 0, 0), typingKey("x")))
+    }
+
+    @Test
+    fun thePickerOffersEverySpecialKey() {
+        val names = def.specialKeys().map { it.name }
+        assertEquals(names.size, names.toSet().size)
+        for (wanted in listOf("Shift", "Backspace", "Enter", "Space", "Arrow left", "Paste", "Open Stickers", "Open Settings",
+            "Go to layer symbols2", "Gap (invisible)")) {
+            assertTrue(wanted, wanted in names)
+        }
+    }
+
+    @Test
+    fun twoKeysCanTradePlacesEvenAcrossLayers() {
+        val a = KeyPos("letters", 1, 1)
+        val space = KeyPos("letters", 3, 2)
+        val swapped = def.swapKeys(a, space)
+        assertEquals(KeyAction.Space, swapped.keyAt(a)!!.action)
+        assertEquals(1f, swapped.keyAt(a)!!.width)      // the place keeps its width
+        assertEquals("a", swapped.keyAt(space)!!.label)
+        assertEquals(5f, swapped.keyAt(space)!!.width)
+        assertEquals(def, swapped.swapKeys(a, space))   // swapping back restores everything
+
+        val pi = KeyPos("symbols2", 0, 5)
+        val across = def.swapKeys(a, pi)
+        assertEquals("π", across.keyAt(a)!!.label)
+        assertEquals("a", across.keyAt(pi)!!.label)
+        assertEquals(across, LayoutJson.parse(LayoutJson.toJson(across)))
+
+        assertSame(def, def.swapKeys(a, a))
+        assertSame(def, def.swapKeys(a, KeyPos("nope", 0, 0)))
     }
 
     @Test

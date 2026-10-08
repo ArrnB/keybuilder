@@ -88,7 +88,7 @@ class PanelsTest {
         } catch (e: LayoutFormatException) {
             assertTrue(e.message, e.message!!.contains("unknown panel"))
         }
-        assertEquals(listOf("Clipboard", "GIF", "Emoji", "Settings"), PANELS.map { panelName(it) })
+        assertEquals(listOf("Clipboard", "GIF", "Stickers", "Emoji", "Settings"), PANELS.map { panelName(it) })
     }
 
     @Test

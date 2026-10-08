@@ -3,13 +3,13 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 6** fixes long press and adds: built-in long-press choices on every keyboard,
-space-bar cursor steering, panels you can drag taller, a settings gear on the strip (switch
-keyboards and change settings without leaving the app you are in), symbols instead of words
-on the strip, clearer clipboard pinning, and a symbol picker in the key editor.
+**Phase 7** makes dragging a panel smooth, adds a sticker panel, and puts "Replace this key"
+and "Swap with another" at the top of the key editor so any key can become any other key or
+trade places with one.
 Earlier phases: 1 the working keyboard, 2 the style editor, 3 the layout editor and several
 saved keyboards, 4 the strip with clipboard, GIF and emoji panels, 5 long-press choices,
-pop-ups, arrow and copy/paste keys, vibration and number boxes.
+pop-ups, arrow and copy/paste keys, vibration and number boxes, 6 built-in long-press
+choices, space-bar cursor steering, resizable panels, the settings gear and strip symbols.
 
 ## Run it
 
@@ -41,11 +41,15 @@ Keyboard
 - Two spaces after a word type a full stop
 
 Shortcut strip and panels
-- A strip above the keys with **Clipboard**, **GIF** and **Emoji** buttons and a settings gear
-  at the right end; each opens a panel where the keys were, and **ABC** brings the keys back.
-  The buttons can show small symbols instead of words
+- A strip above the keys with **Clipboard**, **GIF**, **Stickers** and **Emoji** buttons and a
+  settings gear at the right end; each opens a panel where the keys were, and **ABC** brings
+  the keys back. The buttons can show small symbols instead of words, and scroll sideways if
+  they do not all fit
 - Every panel has a small bar at its top: drag it up to make the panel taller (to see more
-  GIFs, emoji or clipboard items) and down to shrink it; a tap jumps between normal and tallest
+  GIFs, stickers, emoji or clipboard items) and down to shrink it; a tap jumps between normal
+  and tallest. The taller part lies over the app you are in rather than pushing it up
+- Stickers: GIPHY's see-through pictures, with the same trending list, one-tap searches and
+  typed search as GIFs, and the same key
 - Settings (the gear): switch to another of your saved keyboards, turn vibration, pop-ups,
   double space, strip symbols and clipboard history on or off, open the app, or switch to
   another keyboard app, all without leaving the app you are typing in
@@ -67,9 +71,14 @@ Layout editor (home screen > **Edit keys**)
 - Change what is written on a key, and what it shows and types with shift
 - Choose what a key does: type its letter, type a text of any length (a snippet), shift,
   backspace, enter, space, open a layer, open a panel, move the cursor, copy or paste, or nothing
-- Change any key to any letter, number or symbol: "Pick a letter or symbol" opens a catalogue
-  (letters, numbers, punctuation, brackets, maths, money, arrows, Greek, accents, marks)
-- Give a key its own long-press choices, typed or picked from the same catalogue
+- **Replace this key:** the first button when a key is selected. It opens a picker with every
+  key there is: special keys (shift, backspace, enter, space, arrows, copy and paste, panels,
+  layers, a blank key, a gap) and a catalogue of letters, numbers, punctuation, brackets, maths,
+  money, arrows, Greek, accents and marks. Nothing is checked: a symbol can go where a letter
+  was, a letter where the space bar was. The place keeps its width
+- **Swap with another:** tap a second key, on this layer or another, and the two trade places
+- Adding a key opens the same picker, so you choose what the new key is
+- Give a key its own long-press choices, typed or picked from the catalogue
 - Key width, and a key's look: normal, function, accent, or an invisible gap
 - Rows: height, add, move up and down, delete
 - Layers: add, rename, copy, delete, choose which one opens first and which opens in number boxes
@@ -236,27 +245,26 @@ character or a whole group and it appears in the app.
 
 ## How it was checked
 
-Phases 1 to 5 have been built and run. For phase 6, everything without Android code was
-compiled and its 108 tests passed, including the rules behind the new features: which
-long-press choices each key gets, how far a slide on the space bar moves the cursor, how a
-panel grows and shrinks within its limits, and putting catalogue symbols on keys. The Android
-parts (the rewritten touch handling, the strip symbols and gear, the drag handle, the settings
-panel, the symbol picker) were written without access to the Android build tools, so
-**phase 6 has not been built or run yet**. If the build stops or something misbehaves, send
-the error text or a screenshot.
+Phases 1 to 6 have been built and run. For phase 7, everything without Android code was
+compiled and its 114 tests passed, including replacing and swapping keys (every special key
+in every kind of place, with saving and loading), the sticker addresses, and the arithmetic
+that tells Android where a dragged panel's edges are. The Android parts were written without
+access to the Android build tools, so **phase 7 has not been built or run yet**.
 
-About the long-press fix: phase 5 only offered choices on keys that had been given some, and
-keyboards saved before phase 5 had none, so holding a key did nothing. Now every keyboard has
-built-in choices. The hold detection was also rewritten to use a plain timer. If holding a
-key still does nothing, the useful detail is whether the small digits show in the corners of
-the top row.
+The smooth drag is the part to watch. Before, the keyboard's window was resized for every
+finger movement, which is slow and made the app behind it rearrange itself each time. Now the
+window is made as tall as a panel can get once, when a panel opens, and dragging only changes
+how much of it is drawn; Android is told where the panel really is so the app underneath
+stays put and stays touchable above the panel. That uses a part of Android that could not be
+tried here. If, with a panel open, the app above it cannot be touched, jumps upward, or the
+panel leaves an empty band, say which and it can be corrected.
 
 ## Roadmap
 
-7. **Word suggestions and autocorrect:** to be discussed after this phase is tested
-8. **Editor extras:** dragging keys with a finger
-9. **Panel extras:** emoji search and skin tones, stickers
-10. **Polish:** key sounds, landscape tuning, light and dark variants of a keyboard
+8. **Word suggestions and autocorrect:** under discussion; see the notes from the conversation
+9. **Editor extras:** dragging keys with a finger
+10. **Panel extras:** emoji search and skin tones
+11. **Polish:** key sounds, landscape tuning, light and dark variants of a keyboard
 
 Decided against: sharing keyboards as files, and swipe (glide) typing.
 

@@ -12,13 +12,20 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.view.inputmethod.EditorInfoCompat
 import androidx.core.view.inputmethod.InputConnectionCompat
@@ -41,6 +48,7 @@ import app.keybuilder.model.GifItem
 import app.keybuilder.model.KeyDef
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
+import app.keybuilder.model.PANELS
 import app.keybuilder.model.addRecentEmoji
 import app.keybuilder.store.AppSettings
 import app.keybuilder.store.TypingSettings
@@ -88,6 +96,16 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     private lateinit var clipboard: ClipboardController
     private lateinit var gif: GifController
+    private lateinit var sticker: GifController
+
+    /** The Compose view that draws the keyboard. Needed to measure it for onComputeInsets. */
+    private var composeView: ComposeView? = null
+
+    /** Where a panel's edges are while one is open, or null when the keys are showing. */
+    private var panelInsets: PanelInsets? = null
+
+    /** Heights in dp, measured up from the bottom of the keyboard. */
+    private data class PanelInsets(val baseDp: Float, val shownDp: Float)
 
     /** Vibration, pop-ups and the double-space rule. Re-read every time the keyboard appears. */
     private var typing by mutableStateOf(TypingSettings())
@@ -120,6 +138,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         clipboard = ClipboardController(this)
         clipboard.start()
         gif = GifController(this, lifecycleScope)
+        sticker = GifController(this, lifecycleScope, stickers = true)
         gif.tidyCache()
 
         reloadIfChanged()
@@ -145,7 +164,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             decor.setViewTreeLifecycleOwner(this)
             decor.setViewTreeSavedStateRegistryOwner(this)
         }
-        return ComposeView(this).apply {
+        return ComposeView(this).also { composeView = it }.apply {
             setContent {
                 val def = keyboard
                 if (def != null) {
@@ -158,7 +177,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
     }
 
-    /** Decides what fills the keyboard area: the keys, a panel, or the keys with the GIF search bar. */
+    /** Decides what fills the keyboard area: the keys, a panel, or the keys with a search bar on top. */
     @Composable
     private fun KeyboardOrPanel(def: KeyboardDef) {
         // Panels are as tall as the keyboard so nothing jumps, but never too short to be useful.
@@ -168,28 +187,64 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         val maxExtra = (metrics.heightPixels / metrics.density * MAX_PANEL_SCREEN_SHARE - height).coerceAtLeast(0f)
         val size = PanelSize(baseDp = height, extraDp = panelExtraDp.coerceIn(0f, maxExtra), maxExtraDp = maxExtra)
         val resize: (Float) -> Unit = { panelExtraDp = it }
+
+        val search = searching()
         val panel = state.panel
-        when {
-            gif.typing -> Column {
+        val panelOpen = search == null && panel != null && panel in PANELS
+
+        // Remember where the panel's edges are, for onComputeInsets below.
+        SideEffect {
+            val wanted = if (panelOpen) PanelInsets(size.baseDp, size.baseDp + size.extraDp) else null
+            if (wanted != panelInsets) {
+                panelInsets = wanted
+                composeView?.requestLayout()
+            }
+        }
+
+        if (search != null) {
+            Column {
                 GifSearchBar(
                     theme = def.theme,
-                    query = gif.query,
-                    onCancel = { showPanel("gif") },
-                    onSearch = { runGifSearch() },
+                    query = search.query,
+                    onCancel = { showPanel(panelOf(search)) },
+                    onSearch = { runSearch() },
                 )
-                KeyboardView(
-                    def = def,
-                    state = state,
-                    onKey = { handleKey(it) },
-                    showToolbar = false,
-                    onAlternate = { _, text -> handleAlternate(text) },
-                    onKeyDown = { keyTouched() },
-                    showPopups = typing.popups,
-                    onCursor = { moveCursor(it) },
-                )
+                Keys(def, showToolbar = false)
             }
+        } else if (panelOpen && panel != null) {
+            // The window is made as tall as the panel can ever get, once, when the panel opens.
+            // Dragging then only changes how much of that space the panel fills, which is just
+            // a redraw. Resizing the window itself on every finger movement is what made it jerky.
+            Box(
+                modifier = Modifier.fillMaxWidth().height((size.baseDp + size.maxExtraDp).dp),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Panel(def, panel, size, resize)
+            }
+        } else {
+            Keys(def, showToolbar = true)
+        }
+    }
 
-            panel == "clipboard" -> ClipboardPanel(
+    @Composable
+    private fun Keys(def: KeyboardDef, showToolbar: Boolean) {
+        KeyboardView(
+            def = def,
+            state = state,
+            onKey = { handleKey(it) },
+            showToolbar = showToolbar,
+            onOpenPanel = { showPanel(it) },
+            onAlternate = { _, text -> handleAlternate(text) },
+            onKeyDown = { keyTouched() },
+            showPopups = typing.popups,
+            onCursor = { moveCursor(it) },
+        )
+    }
+
+    @Composable
+    private fun Panel(def: KeyboardDef, panel: String, size: PanelSize, resize: (Float) -> Unit) {
+        when (panel) {
+            "clipboard" -> ClipboardPanel(
                 theme = def.theme,
                 size = size,
                 onResize = resize,
@@ -206,30 +261,11 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 onClear = { clipboard.clearUnpinned() },
             )
 
-            panel == "gif" -> GifPanel(
-                theme = def.theme,
-                size = size,
-                onResize = resize,
-                gifs = gif.gifs,
-                loading = gif.loading,
-                message = gif.message,
-                query = gif.query,
-                hasKey = gif.hasKey,
-                imageLoader = imageLoader,
-                canLoadMore = gif.canLoadMore,
-                loadingMore = gif.loadingMore,
-                onMore = { gif.loadMore() },
-                onClose = { showPanel(null) },
-                onSearchBox = {
-                    // Bring the keys back, but send what they type to the search words.
-                    state = state.copy(panel = null)
-                    gif.typing = true
-                },
-                onQuickSearch = { gif.search(it) },
-                onPick = { sendGif(it) },
-            )
+            "gif" -> PicturePanel(def, gif, size, resize, title = "GIFs by GIPHY", searchHint = "Search GIFs")
 
-            panel == "emoji" -> EmojiPanel(
+            "sticker" -> PicturePanel(def, sticker, size, resize, title = "Stickers by GIPHY", searchHint = "Search stickers")
+
+            "emoji" -> EmojiPanel(
                 theme = def.theme,
                 size = size,
                 onResize = resize,
@@ -239,7 +275,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 onPick = { pickEmoji(it) },
             )
 
-            panel == "settings" -> SettingsPanel(
+            else -> SettingsPanel(
                 theme = def.theme,
                 size = size,
                 onResize = resize,
@@ -259,18 +295,82 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                     getSystemService(InputMethodManager::class.java).showInputMethodPicker()
                 },
             )
-
-            else -> KeyboardView(
-                def = def,
-                state = state,
-                onKey = { handleKey(it) },
-                onOpenPanel = { showPanel(it) },
-                onAlternate = { _, text -> handleAlternate(text) },
-                onKeyDown = { keyTouched() },
-                showPopups = typing.popups,
-                onCursor = { moveCursor(it) },
-            )
         }
+    }
+
+    /** The GIF panel and the sticker panel are the same panel fed by two different controllers. */
+    @Composable
+    private fun PicturePanel(
+        def: KeyboardDef,
+        source: GifController,
+        size: PanelSize,
+        resize: (Float) -> Unit,
+        title: String,
+        searchHint: String,
+    ) {
+        GifPanel(
+            theme = def.theme,
+            size = size,
+            onResize = resize,
+            title = title,
+            searchHint = searchHint,
+            gifs = source.gifs,
+            loading = source.loading,
+            message = source.message,
+            query = source.query,
+            hasKey = source.hasKey,
+            imageLoader = imageLoader,
+            canLoadMore = source.canLoadMore,
+            loadingMore = source.loadingMore,
+            onMore = { source.loadMore() },
+            onClose = { showPanel(null) },
+            onSearchBox = {
+                // Bring the keys back, but send what they type to the search words.
+                state = state.copy(panel = null)
+                source.typing = true
+            },
+            onQuickSearch = { source.search(it) },
+            onPick = { sendGif(it, source) },
+        )
+    }
+
+    /** The controller whose search words are being typed right now, if any. */
+    private fun searching(): GifController? = when {
+        gif.typing -> gif
+        sticker.typing -> sticker
+        else -> null
+    }
+
+    private fun panelOf(source: GifController): String = if (source === sticker) "sticker" else "gif"
+
+    /**
+     * Tells Android where the keyboard really is while a panel is open.
+     *
+     * With a panel open the window is taller than what is drawn (see KeyboardOrPanel), so
+     * without this the app would be squeezed above an invisible area and could not be touched
+     * there. This says: lay the app out as if only the normal keyboard were there, and send
+     * touches above the panel's top edge to the app.
+     */
+    override fun onComputeInsets(outInsets: InputMethodService.Insets) {
+        super.onComputeInsets(outInsets)
+        val insets = panelInsets ?: return
+        val view = composeView ?: return
+        val decor = window?.window?.decorView ?: return
+        if (view.height == 0 || !view.isShown) return
+
+        val density = resources.displayMetrics.density
+        val location = IntArray(2)
+        view.getLocationInWindow(location)
+        val (contentTop, shownTop) = KeyboardEngine.panelInsetTops(
+            viewTop = location[1],
+            viewHeight = view.height,
+            basePx = insets.baseDp * density,
+            shownPx = insets.shownDp * density,
+        )
+        outInsets.contentTopInsets = contentTop
+        outInsets.visibleTopInsets = shownTop
+        outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION
+        outInsets.touchableRegion.set(0, shownTop, decor.width, decor.height)
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -284,7 +384,10 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             // A new text box: start on the first layer, or on the number layer where only numbers fit.
             state = KeyboardEngine.stateForField(def, KeyboardEngine.initialState(def), isNumberBox(info))
         }
-        if (!restarting) gif.typing = false
+        if (!restarting) {
+            gif.typing = false
+            sticker.typing = false
+        }
         clipboard.refresh()
         syncAutoCaps()
     }
@@ -329,10 +432,11 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
 
         // While search words are being typed, the keys fill in the words, not the app's text.
-        if (gif.typing) {
-            val (words, submitted) = KeyboardEngine.typeIntoQuery(gif.query, result.effects)
-            gif.query = words
-            if (submitted) runGifSearch()
+        val search = searching()
+        if (search != null) {
+            val (words, submitted) = KeyboardEngine.typeIntoQuery(search.query, result.effects)
+            search.query = words
+            if (submitted) runSearch()
             return
         }
 
@@ -441,6 +545,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     /** Shows a panel, or the keys again when [panel] is null. */
     private fun showPanel(panel: String?) {
         gif.typing = false
+        sticker.typing = false
         state = state.copy(panel = panel)
         when (panel) {
             "clipboard" -> {
@@ -448,6 +553,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 clipboard.refresh()
             }
             "gif" -> gif.open()
+            "sticker" -> sticker.open()
             "settings" -> {
                 clipboard.refresh()
                 savedKeyboards = LayoutRepository.list(this).map { it.id to it.name }
@@ -469,10 +575,12 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
     }
 
-    private fun runGifSearch() {
-        gif.typing = false
-        state = state.copy(panel = "gif")
-        gif.search(gif.query)
+    /** Enter was pressed (or Search tapped) while typing search words: go back to the panel and search. */
+    private fun runSearch() {
+        val search = searching() ?: return
+        search.typing = false
+        state = state.copy(panel = panelOf(search))
+        search.search(search.query)
     }
 
     private fun pasteClip(entry: ClipEntry) {
@@ -486,20 +594,21 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
     }
 
-    private fun sendGif(item: GifItem) {
+    /** Sends a GIF or a sticker (both are GIF pictures) picked in [source]'s panel. */
+    private fun sendGif(item: GifItem, source: GifController) {
         if (!fieldAccepts(GIF_TYPE)) {
             // Plenty of text boxes take text only. A link is the next best thing.
             currentInputConnection?.commitText(item.pageUrl + " ", 1)
-            gif.message = "This text box does not accept GIFs, so a link was typed instead."
+            source.message = "This text box does not accept pictures, so a link was typed instead."
             return
         }
-        gif.message = "Sending"
+        source.message = "Sending"
         lifecycleScope.launch {
-            val file = gif.download(item)
-            gif.message = when {
-                file == null -> "Could not download that GIF. Check the internet and try again."
+            val file = source.download(item)
+            source.message = when {
+                file == null -> "Could not download it. Check the internet and try again."
                 sendPicture(file, GIF_TYPE, item.title) -> null
-                else -> "The app did not take the GIF."
+                else -> "The app did not take the picture."
             }
         }
     }

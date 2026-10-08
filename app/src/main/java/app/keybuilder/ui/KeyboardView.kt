@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -230,20 +232,26 @@ private fun ToolbarStrip(palette: Palette, onOpenPanel: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        for (panel in PANELS.filter { it != SETTINGS_PANEL }) {
-            StripButton(palette, onClick = { onOpenPanel(panel) }) {
-                if (icons) {
-                    PanelGlyph(panel, palette.text)
-                } else {
-                    BasicText(
-                        text = panelName(panel),
-                        maxLines = 1,
-                        style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
-                    )
+        // The panel buttons scroll sideways if they do not all fit; the gear always stays in view.
+        Row(
+            modifier = Modifier.weight(1f).fillMaxHeight().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (panel in PANELS.filter { it != SETTINGS_PANEL }) {
+                StripButton(palette, onClick = { onOpenPanel(panel) }) {
+                    if (icons) {
+                        PanelGlyph(panel, palette.text)
+                    } else {
+                        BasicText(
+                            text = panelName(panel),
+                            maxLines = 1,
+                            style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
+                        )
+                    }
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
         StripButton(palette, onClick = { onOpenPanel(SETTINGS_PANEL) }) {
             PanelGlyph(SETTINGS_PANEL, palette.text)
         }
@@ -259,7 +267,7 @@ private fun StripButton(palette: Palette, onClick: () -> Unit, content: @Composa
             // A faint tint of the text colour, so it shows on any theme (even see-through keys).
             .background(palette.text.copy(alpha = 0.12f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         content()
@@ -316,6 +324,25 @@ internal fun PanelGlyph(panel: String, tint: Color, sizeDp: Float = 20f) {
                     size = Size(w * 0.40f, h * 0.40f),
                     style = line,
                 )
+            }
+
+            "sticker" -> {
+                // A square note with one corner peeling up.
+                val note = Path().apply {
+                    moveTo(w * 0.20f, h * 0.20f)
+                    lineTo(w * 0.80f, h * 0.20f)
+                    lineTo(w * 0.80f, h * 0.56f)
+                    lineTo(w * 0.56f, h * 0.80f)
+                    lineTo(w * 0.20f, h * 0.80f)
+                    close()
+                }
+                drawPath(note, tint, style = line)
+                val peel = Path().apply {
+                    moveTo(w * 0.80f, h * 0.56f)
+                    lineTo(w * 0.56f, h * 0.56f)
+                    lineTo(w * 0.56f, h * 0.80f)
+                }
+                drawPath(peel, tint, style = line)
             }
 
             else -> {

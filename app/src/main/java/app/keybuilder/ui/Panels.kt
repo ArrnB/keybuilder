@@ -126,7 +126,8 @@ private fun ResizeHandle(colors: PanelColors, size: PanelSize, onResize: (Float)
                         val pulledUp = (drag.startRawY - event.rawY) / density
                         if (abs(pulledUp) > 6f) drag.moved = true
                         if (drag.moved) {
-                            report(KeyboardEngine.resizePanel(drag.startExtra, pulledUp, current.maxExtraDp))
+                            // step = 0: follow the finger exactly. Only the panel is redrawn, so this is cheap.
+                            report(KeyboardEngine.resizePanel(drag.startExtra, pulledUp, current.maxExtraDp, step = 0f))
                         }
                     }
                     MotionEvent.ACTION_UP -> {
@@ -350,6 +351,8 @@ fun GifPanel(
     theme: Theme,
     size: PanelSize,
     onResize: (Float) -> Unit,
+    title: String,
+    searchHint: String,
     gifs: List<GifItem>,
     loading: Boolean,
     message: String?,
@@ -364,11 +367,11 @@ fun GifPanel(
     onMore: () -> Unit,
     onPick: (GifItem) -> Unit,
 ) {
-    PanelFrame(theme = theme, size = size, onResize = onResize, title = "GIFs by GIPHY", onClose = onClose) { colors ->
+    PanelFrame(theme = theme, size = size, onResize = onResize, title = title, onClose = onClose) { colors ->
         if (!hasKey) {
             PanelNote(
                 colors,
-                "GIF search needs a free GIPHY key. Open the KeyBuilder app, choose " +
+                "GIFs and stickers need a free GIPHY key. Open the KeyBuilder app, choose " +
                     "Settings, and paste your key there.",
             )
         } else {
@@ -382,7 +385,7 @@ fun GifPanel(
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {
                 PanelText(
-                    text = if (query.isEmpty()) "Search GIPHY" else query,
+                    text = if (query.isEmpty()) searchHint else query,
                     color = if (query.isEmpty()) colors.faint else colors.text,
                     sizeSp = 14f,
                 )
@@ -403,7 +406,7 @@ fun GifPanel(
             if (loading) {
                 PanelNote(colors, "Loading")
             } else if (gifs.isEmpty()) {
-                PanelNote(colors, if (message == null) "No GIFs to show." else "")
+                PanelNote(colors, if (message == null) "Nothing to show." else "")
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
@@ -434,7 +437,7 @@ fun GifPanel(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 PanelChip(
-                                    text = if (loadingMore) "Loading" else "More GIFs",
+                                    text = if (loadingMore) "Loading" else "Show more",
                                     colors = colors,
                                     onClick = onMore,
                                     strong = true,

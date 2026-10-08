@@ -86,14 +86,15 @@ sealed interface KeyAction {
 }
 
 /**
- * The built-in panels. The first three are the buttons on the left of the shortcut strip;
+ * The built-in panels. All but the last are the buttons on the left of the shortcut strip;
  * "settings" is the gear at its right end.
  */
-val PANELS = listOf("clipboard", "gif", "emoji", "settings")
+val PANELS = listOf("clipboard", "gif", "sticker", "emoji", "settings")
 
 fun panelName(id: String): String = when (id) {
     "clipboard" -> "Clipboard"
     "gif" -> "GIF"
+    "sticker" -> "Stickers"
     "emoji" -> "Emoji"
     "settings" -> "Settings"
     else -> id

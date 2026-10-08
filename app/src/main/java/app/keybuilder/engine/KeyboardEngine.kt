@@ -189,6 +189,21 @@ object KeyboardEngine {
         return stepped.coerceIn(0f, maxExtra.coerceAtLeast(0f))
     }
 
+    /**
+     * While a panel is open the keyboard's window is as tall as the panel can ever get, and
+     * the panel sits at its bottom; the space above is see-through. Android must be told
+     * where things really are, measured from the top of the window:
+     *  - first: where the app's own content should end. This stays at the normal keyboard
+     *    height, so the app is not rearranged while the panel is dragged.
+     *  - second: where the panel's top edge is right now. Touches above it go to the app.
+     */
+    fun panelInsetTops(viewTop: Int, viewHeight: Int, basePx: Float, shownPx: Float): Pair<Int, Int> {
+        val bottom = viewTop + viewHeight
+        val contentTop = (bottom - Math.round(basePx)).coerceIn(viewTop, bottom)
+        val shownTop = (bottom - Math.round(shownPx)).coerceIn(viewTop, bottom)
+        return contentTop to shownTop
+    }
+
     /** Types a long-press choice. Like any typed character it uses up a single shift. */
     fun pressAlternate(state: KeyboardState, text: String): PressResult = typed(state, text)
 

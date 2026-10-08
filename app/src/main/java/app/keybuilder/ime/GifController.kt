@@ -22,7 +22,12 @@ import kotlinx.coroutines.withContext
  * a search is running. It asks GIPHY in the background so the keyboard never freezes.
  * The addresses asked and how answers are read are in model/Giphy.kt.
  */
-class GifController(private val context: Context, private val scope: CoroutineScope) {
+class GifController(
+    private val context: Context,
+    private val scope: CoroutineScope,
+    /** False for GIFs, true for stickers. Each has its own controller, so each keeps its own search. */
+    private val stickers: Boolean = false,
+) {
 
     /** The search words. Empty means "what is popular right now". */
     var query by mutableStateOf("")
@@ -65,7 +70,11 @@ class GifController(private val context: Context, private val scope: CoroutineSc
         hasKey = key.isNotEmpty()
         if (!hasKey) return
         val wanted = query
-        val url = if (wanted.isEmpty()) Giphy.trendingUrl(key) else Giphy.searchUrl(key, wanted)
+        val url = if (wanted.isEmpty()) {
+            Giphy.trendingUrl(key, stickers = stickers)
+        } else {
+            Giphy.searchUrl(key, wanted, stickers = stickers)
+        }
 
         job?.cancel() // a newer search replaces one still running
         loadingMore = false
@@ -100,7 +109,11 @@ class GifController(private val context: Context, private val scope: CoroutineSc
         if (key.isEmpty()) return
         val wanted = query
         val skip = gifs.size
-        val url = if (wanted.isEmpty()) Giphy.trendingUrl(key, skip) else Giphy.searchUrl(key, wanted, skip)
+        val url = if (wanted.isEmpty()) {
+            Giphy.trendingUrl(key, skip, stickers)
+        } else {
+            Giphy.searchUrl(key, wanted, skip, stickers)
+        }
 
         loadingMore = true
         job = scope.launch {
@@ -128,7 +141,8 @@ class GifController(private val context: Context, private val scope: CoroutineSc
     /** Downloads the GIF to send, or returns null if that fails. Reuses a copy from earlier. */
     suspend fun download(gif: GifItem): File? = withContext(Dispatchers.IO) {
         val safeId = gif.id.filter { it.isLetterOrDigit() }.ifEmpty { "gif" }
-        val file = File(File(context.cacheDir, SHARED_FOLDER), "gif_$safeId.gif")
+        val prefix = if (stickers) "sticker" else "gif"
+        val file = File(File(context.cacheDir, SHARED_FOLDER), "${prefix}_$safeId.gif")
         try {
             if (!file.exists() || file.length() == 0L) httpDownload(gif.sendUrl, file, MAX_GIF_BYTES)
             file

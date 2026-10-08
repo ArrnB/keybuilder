@@ -29,18 +29,24 @@ data class GifItem(
 
 object Giphy {
 
-    private const val BASE = "https://api.giphy.com/v1/gifs"
+    private const val GIFS = "https://api.giphy.com/v1/gifs"
+
+    /** Stickers are GIPHY's see-through pictures. They come from a sister address and look the same in answers. */
+    private const val STICKERS = "https://api.giphy.com/v1/stickers"
     const val PAGE_SIZE = 24
 
     /** Words offered as one-tap searches. */
     val QUICK_SEARCHES = listOf("hello", "thanks", "yes", "no", "lol", "love", "happy", "sad", "wow", "ok", "bye", "congrats")
 
-    /** [offset] is how many GIFs to skip: 0 for the first page, PAGE_SIZE for the second... */
-    fun trendingUrl(apiKey: String, offset: Int = 0): String =
-        "$BASE/trending?api_key=${encode(apiKey.trim())}&limit=$PAGE_SIZE&rating=g&offset=$offset"
+    /** [offset] is how many to skip: 0 for the first page, PAGE_SIZE for the second... */
+    fun trendingUrl(apiKey: String, offset: Int = 0, stickers: Boolean = false): String =
+        "${base(stickers)}/trending?api_key=${encode(apiKey.trim())}&limit=$PAGE_SIZE&rating=g&offset=$offset"
 
-    fun searchUrl(apiKey: String, query: String, offset: Int = 0): String =
-        "$BASE/search?api_key=${encode(apiKey.trim())}&q=${encode(query.trim())}&limit=$PAGE_SIZE&rating=g&offset=$offset"
+    fun searchUrl(apiKey: String, query: String, offset: Int = 0, stickers: Boolean = false): String =
+        "${base(stickers)}/search?api_key=${encode(apiKey.trim())}&q=${encode(query.trim())}" +
+            "&limit=$PAGE_SIZE&rating=g&offset=$offset"
+
+    private fun base(stickers: Boolean): String = if (stickers) STICKERS else GIFS
 
     /** Reads GIPHY's answer. GIFs with missing parts are skipped; nonsense gives an empty list. */
     fun parse(json: String): List<GifItem> {

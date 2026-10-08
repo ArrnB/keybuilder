@@ -143,6 +143,64 @@ fun KeyboardDef.withKeyLook(pos: KeyPos, look: KeyLook): KeyboardDef = withKey(p
 fun KeyboardDef.withKeyText(pos: KeyPos, text: String): KeyboardDef =
     withKey(pos) { if (it.action is KeyAction.Text) it.copy(action = KeyAction.Text(text)) else it }
 
+// ------------------------------------------------------------------ any key anywhere
+
+/** A ready-made key offered by the key picker, with the name it is listed under. */
+data class KeyTemplate(val name: String, val key: KeyDef)
+
+/** A key that types [character]. This is what picking a letter or symbol puts on the keyboard. */
+fun typingKey(character: String): KeyDef = KeyDef(label = character)
+
+/**
+ * Every special key there is, for the key picker: shift, backspace, enter, space, arrows,
+ * copy and paste, one per panel, one per layer of this keyboard, a blank key and a gap.
+ */
+fun KeyboardDef.specialKeys(): List<KeyTemplate> {
+    val function = KeyLook.FUNCTION
+    val fixed = listOf(
+        KeyTemplate("Shift", KeyDef(action = KeyAction.Shift, look = function)),
+        KeyTemplate("Backspace", KeyDef(action = KeyAction.Backspace, look = function)),
+        KeyTemplate("Enter", KeyDef(action = KeyAction.Enter, look = KeyLook.ACCENT)),
+        KeyTemplate("Space", KeyDef(action = KeyAction.Space)),
+    )
+    val arrows = ARROWS.map { direction ->
+        KeyTemplate("Arrow $direction", KeyDef(action = KeyAction.Arrow(direction), look = function))
+    }
+    val commands = COMMANDS.map { command ->
+        KeyTemplate(commandName(command), KeyDef(label = commandName(command), action = KeyAction.Command(command), look = function))
+    }
+    val panels = PANELS.map { panel ->
+        KeyTemplate("Open ${panelName(panel)}", KeyDef(label = panelName(panel), action = KeyAction.OpenPanel(panel), look = function))
+    }
+    val layerKeys = layers.map { layer ->
+        KeyTemplate("Go to layer ${layer.id}", KeyDef(label = layer.id, action = KeyAction.SwitchLayer(layer.id), look = function))
+    }
+    val others = listOf(
+        KeyTemplate("Blank key (does nothing)", KeyDef(action = KeyAction.None)),
+        KeyTemplate("Gap (invisible)", KeyDef(look = KeyLook.SPACER)),
+    )
+    return fixed + arrows + commands + panels + layerKeys + others
+}
+
+/**
+ * Turns the key at [pos] into [replacement], whatever either of them is. Nothing is checked:
+ * a shift key can go where "a" was, a letter where the space bar was. Only the width of the
+ * place is kept, so the row keeps its shape.
+ */
+fun KeyboardDef.replaceKey(pos: KeyPos, replacement: KeyDef): KeyboardDef =
+    withKey(pos) { old -> replacement.copy(width = old.width) }
+
+/**
+ * Makes two keys trade places, in the same row, in different rows or on different layers.
+ * Each place keeps its width; everything else about the keys moves.
+ */
+fun KeyboardDef.swapKeys(a: KeyPos, b: KeyPos): KeyboardDef {
+    val keyA = keyAt(a) ?: return this
+    val keyB = keyAt(b) ?: return this
+    if (a == b) return this
+    return withKey(a) { keyB.copy(width = keyA.width) }.withKey(b) { keyA.copy(width = keyB.width) }
+}
+
 // ------------------------------------------------------------------ what a key does
 
 /** The kinds of action offered in the editor, in the order they are shown. */
