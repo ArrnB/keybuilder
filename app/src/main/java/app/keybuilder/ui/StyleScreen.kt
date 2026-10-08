@@ -2,6 +2,8 @@ package app.keybuilder.ui
 
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.model.FONT_FAMILIES
 import app.keybuilder.model.GRADIENT_DIRECTIONS
+import app.keybuilder.model.KEY_ANIMATIONS
+import app.keybuilder.model.KEY_SOUNDS
 import app.keybuilder.model.MAX_BLUR
 import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyStyle
@@ -49,7 +53,12 @@ import app.keybuilder.model.ThemeColor
 import app.keybuilder.model.ThemePreset
 import app.keybuilder.model.ThemePresets
 import app.keybuilder.model.ThemeSize
+import app.keybuilder.model.animationName
 import app.keybuilder.model.backgroundFor
+import app.keybuilder.model.fontFileName
+import app.keybuilder.model.fontName
+import app.keybuilder.model.soundFor
+import app.keybuilder.model.soundName
 import app.keybuilder.model.describe
 import app.keybuilder.model.formatNumber
 import app.keybuilder.model.gradientDirectionName
@@ -82,6 +91,8 @@ fun StyleScreen(
     onChange: (KeyboardDef) -> Unit,
     onSave: (KeyboardDef) -> Unit,
     onBack: () -> Unit,
+    /** Plays one of KEY_SOUNDS so a choice can be heard straight away. */
+    onPreviewSound: (String) -> Unit = {},
 ) {
     var tab by rememberSaveable { mutableStateOf(TAB_THEME) }
     var previewState by remember { mutableStateOf(KeyboardEngine.initialState(keyboard)) }
@@ -130,6 +141,7 @@ fun StyleScreen(
                     ThemeControls(
                         theme = keyboard.theme,
                         onTheme = { onChange(keyboard.copy(theme = it)) },
+                        onPreviewSound = onPreviewSound,
                     )
                 } else {
                     KeyControls(
@@ -141,12 +153,13 @@ fun StyleScreen(
                             selectedKey = null
                         },
                         onChange = onChange,
+                        onPreviewSound = onPreviewSound,
                     )
                 }
             }
 
             Text(
-                text = if (tab == TAB_THEME) "Preview. Shift and the layer keys work here."
+                text = if (tab == TAB_THEME) "Preview. Press keys to see their animation and hear their sound."
                 else "Tap a key to select it.",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -160,6 +173,7 @@ fun StyleScreen(
                 },
                 selected = if (tab == TAB_KEYS) selectedKey else null,
                 onKeyAt = if (tab == TAB_KEYS) pickKey else null,
+                onKeyDown = { key -> onPreviewSound(keyboard.theme.soundFor(key)) },
             )
         }
     }
@@ -191,7 +205,7 @@ fun StyleScreen(
 // ------------------------------------------------------------------ whole keyboard
 
 @Composable
-private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
+private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit, onPreviewSound: (String) -> Unit) {
     var editing by remember { mutableStateOf<ThemeColor?>(null) }
     var editingGradient by remember { mutableStateOf(false) }
     val fromPhone = theme.colorSource == "phone"
@@ -312,15 +326,83 @@ private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
         )
     }
 
-    SectionTitle("Letters")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (family in FONT_FAMILIES) {
+    SectionTitle("Sound and movement")
+    Text("Key sound", style = MaterialTheme.typography.bodyLarge)
+    ScrollRow {
+        for (sound in KEY_SOUNDS) {
             Pill(
-                text = fontFamilyName(family),
+                text = soundName(sound),
+                selected = theme.sound == sound,
+                onClick = {
+                    onTheme(theme.copy(sound = sound))
+                    onPreviewSound(sound)
+                },
+            )
+        }
+    }
+    Text("Key press animation", style = MaterialTheme.typography.bodyLarge)
+    ScrollRow {
+        for (animation in KEY_ANIMATIONS) {
+            Pill(
+                text = animationName(animation),
+                selected = theme.animation == animation,
+                onClick = { onTheme(theme.copy(animation = animation)) },
+            )
+        }
+    }
+    Text(
+        "These are for every key of this keyboard; a single key can have its own under \"Single " +
+            "keys\". On the real keyboard sounds only play while \"Key sounds\" is on in Settings. " +
+            "Hear nothing here? Sounds follow the phone and stay quiet while it is on silent or " +
+            "vibrate, unless you allow them in Settings.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+
+    SectionTitle("Letters")
+    val fontContext = LocalContext.current
+    var ownFonts by remember { mutableStateOf(Fonts.added(fontContext)) }
+    var fontNote by remember { mutableStateOf<String?>(null) }
+    val pickFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
+        if (picked != null) {
+            val added = Fonts.add(fontContext, picked)
+            if (added == null) {
+                fontNote = "That file could not be used as a font. Pick a .ttf or .otf font file."
+            } else {
+                fontNote = null
+                ownFonts = Fonts.added(fontContext)
+                onTheme(theme.copy(fontFamily = added))
+            }
+        }
+    }
+    ScrollRow {
+        for (family in FONT_FAMILIES + ownFonts) {
+            Pill(
+                text = fontName(family),
                 selected = theme.fontFamily == family,
                 onClick = { onTheme(theme.copy(fontFamily = family)) },
             )
         }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { pickFont.launch(arrayOf("font/*", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream")) }) {
+            Text("Add a font file")
+        }
+        if (fontFileName(theme.fontFamily) != null) {
+            TextButton(onClick = {
+                Fonts.delete(fontContext, theme.fontFamily)
+                ownFonts = Fonts.added(fontContext)
+                onTheme(theme.copy(fontFamily = "sans"))
+            }) { Text("Remove this font") }
+        }
+    }
+    Text(
+        text = fontNote ?: "The built-in styles are the fonts every Android phone carries; a phone that lacks one " +
+            "shows its normal font instead. \"Add a font file\" takes any .ttf or .otf font you have " +
+            "downloaded and copies it into the app.",
+        style = MaterialTheme.typography.bodySmall,
+        color = if (fontNote != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Pill("Bold", selected = theme.bold, onClick = { onTheme(theme.copy(bold = !theme.bold)) })
         // The small character in a key's corner that shows its first long-press choice.
         Pill("Corner hints", selected = theme.hints, onClick = { onTheme(theme.copy(hints = !theme.hints)) })
@@ -350,12 +432,6 @@ private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
             },
         )
     }
-}
-
-private fun fontFamilyName(family: String): String = when (family) {
-    "serif" -> "Serif"
-    "mono" -> "Typewriter"
-    else -> "Plain"
 }
 
 /** A tiny picture of a look: its background with three keys and the accent key. */
@@ -410,11 +486,12 @@ private fun KeyControls(
     selected: KeyPos?,
     onLayer: (String) -> Unit,
     onChange: (KeyboardDef) -> Unit,
+    onPreviewSound: (String) -> Unit,
 ) {
     var editing by remember { mutableStateOf<KeyColorField?>(null) }
 
     Text(
-        "Give one key its own colours or letter size. Everything you leave alone keeps following the theme.",
+        "Give one key its own colours, letter size, sound or animation. Everything you leave alone keeps following the theme.",
         style = MaterialTheme.typography.bodyMedium,
     )
 
@@ -469,6 +546,43 @@ private fun KeyControls(
                 },
             )
         }
+        Text("Sound", style = MaterialTheme.typography.bodyLarge)
+        ScrollRow {
+            Pill(
+                text = "Theme's (${soundName(theme.sound)})",
+                selected = style.sound == null,
+                onClick = { onChange(keyboard.withKeyStyle(selected, style.copy(sound = null))) },
+            )
+            for (sound in KEY_SOUNDS) {
+                Pill(
+                    text = soundName(sound),
+                    selected = style.sound == sound,
+                    onClick = {
+                        onChange(keyboard.withKeyStyle(selected, style.copy(sound = sound)))
+                        onPreviewSound(sound)
+                    },
+                )
+            }
+        }
+        Text("Animation", style = MaterialTheme.typography.bodyLarge)
+        ScrollRow {
+            Pill(
+                text = "Theme's (${animationName(theme.animation)})",
+                selected = style.animation == null,
+                onClick = { onChange(keyboard.withKeyStyle(selected, style.copy(animation = null))) },
+            )
+            for (animation in KEY_ANIMATIONS) {
+                Pill(
+                    text = animationName(animation),
+                    selected = style.animation == animation,
+                    onClick = { onChange(keyboard.withKeyStyle(selected, style.copy(animation = animation))) },
+                )
+            }
+        }
+        Text(
+            "To try this key's animation and sound, switch to \"Whole keyboard\" and press it in the preview.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         OutlinedButton(
             onClick = { onChange(keyboard.withKeyStyle(selected, null)) },
             enabled = keyDef.style != null,

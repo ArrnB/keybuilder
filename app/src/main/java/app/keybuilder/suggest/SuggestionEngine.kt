@@ -101,6 +101,9 @@ enum class SuggestionKind {
 
     /** What was typed, offered so it can be kept as it is. */
     TYPED,
+
+    /** The full text of one of your own text shortcuts, which is about to replace what was typed. */
+    SHORTCUT,
 }
 
 data class Suggestion(val text: String, val kind: SuggestionKind = SuggestionKind.WORD)

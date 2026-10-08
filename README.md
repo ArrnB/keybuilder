@@ -3,12 +3,14 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 9** makes panels solid again on a see-through keyboard, keeps the GIF library on
-screen while you type a search, adds a frosted-glass blur, a vibration strength slider and
-screenshots in the clipboard, resets a dragged panel when it closes, and lets the keyboard
-learn your own corrections.
-Earlier phases: 8 suggestions and autocorrect for English and Hinglish, the last-copied
-button, see-through and gradient backgrounds and phone colours; 1 the working keyboard, 2 the style editor, 3 the layout editor and several
+**Phase 10** adds text shortcuts, key sounds and key press animations (for the whole keyboard
+and for single keys), more fonts including your own font files, a text editing panel, a
+symbols panel, recent and favourite GIFs and stickers, a keyboard height slider, and
+suggestions that shrink to fit instead of being cut off. It was also stress tested.
+Earlier phases: 9 solid panels, searching over the GIF library, blur, vibration strength,
+screenshots in the clipboard and your own corrections; 8 suggestions and autocorrect for
+English and Hinglish, the last-copied button, see-through and gradient backgrounds and
+phone colours; 1 the working keyboard, 2 the style editor, 3 the layout editor and several
 saved keyboards, 4 the strip with clipboard, GIF and emoji panels, 5 long-press choices,
 pop-ups, arrow and copy/paste keys, vibration and number boxes, 6 built-in long-press
 choices, space-bar cursor steering, resizable panels, the settings gear and strip symbols,
@@ -41,6 +43,18 @@ Keyboard
 - The pressed letter is shown enlarged above the key
 - Arrow keys (they repeat while held) and copy, paste, cut and select-all keys, as key types
 - A short vibration when a key is touched, at a strength you set with a slider
+- **Key sounds:** seven sounds made for the app (click, pop, tick, thock, drop, beep,
+  typewriter) and the phone's own key click. Off until you switch them on in Settings,
+  where the volume is too. Each keyboard has its sound, and any single key can have its own
+  or be silent. They follow the phone (quiet on silent or vibrate) unless you allow otherwise
+- **Key press animations:** sink, pop, bounce, glow, tilt and fade, for the whole keyboard
+  or for single keys
+- **Keyboard height:** a slider from 70% to 150%. Rows get taller or shorter and letters
+  and icons are scaled evenly with them, so nothing is stretched
+- **Text shortcuts:** make your own in Settings. Type `omw` and a space, comma, full stop or
+  enter, and it becomes "on my way"; `@@` can be your e-mail address. The strip shows what
+  a shortcut will turn into before it does, capitals do not matter, and backspace straight
+  after puts the shortcut back. They work in every box except password boxes
 - Number boxes (phone, amount, PIN, date) open the layer you choose
 - Two spaces after a word type a full stop
 
@@ -70,13 +84,25 @@ Suggestions and autocorrect (English and Hinglish)
 - **Which language you mostly type:** once most of the words it has learned from you are
   Hinglish, an unknown word at the very start of a sentence is taken to be Hinglish and left
   alone instead of being "fixed" into English
-- **Never in password boxes.** There, and in boxes for e-mail addresses, links and numbers, in
-  boxes that ask for no suggestions, the keyboard does not read the text at all. In a
-  browser's private mode it suggests but learns nothing
+- **Never in password boxes.** There, and in number boxes, the keyboard does not read the
+  text at all. In boxes for e-mail addresses and links, and boxes that ask for no
+  suggestions, it does nothing either, with one exception: if you have made text shortcuts
+  it looks at the last few characters to see whether you typed one. In a browser's private
+  mode it suggests but learns nothing
+- Long suggestions are fitted, not cut off: the letters shrink a little, longer words get
+  more of the width, and a word that still does not fit loses its middle ("Carb…ated")
+  rather than its end, so three words with the same start can be told apart
 - Each of the three (suggestions, automatic fixing, learning) has its own switch, and
   **Forget learned words** erases everything it picked up
 
 Shortcut strip and panels
+- Two more panels on the strip. **Symbols:** maths, money, arrows, Greek, marks and so on,
+  plus faces like `¯\_(ツ)_/¯`, with the ones you used recently first. **Edit:** big buttons
+  for moving through text (arrows, a word at a time, start and end of the line), Select
+  (the arrows then stretch the selection), select all, copy, cut, paste, undo, redo and
+  delete; arrows and delete repeat while held
+- **Recent and favourite GIFs and stickers:** the ones you send are under Recent. Hold any
+  GIF or sticker to add it to Favourites (it gets a star); hold it again to take it out
 - **The last thing you copied** sits on the strip next to the gear. Tap it to paste; hold it to
   hide it until you copy something else. It works with the clipboard history off (a copied
   picture needs the history on), and a password copied from a password manager shows as dots
@@ -158,15 +184,21 @@ Style editor (home screen > **Edit style**)
   version it switches between light and dark with the phone. Your own colours are kept for
   switching back
 - Corner roundness, border thickness, key height, gap, letter size
-- Letters: plain, serif or typewriter, bold, and whether keys show their corner hint
-- Single keys: tap a key in the preview and give it its own background, letter colour or size
+- Letters: twelve built-in styles (plain, serif, typewriter, narrow, light, medium, heavy,
+  thin, casual, handwriting, small caps, serif typewriter), bold, and whether keys show
+  their corner hint. **Add a font file** takes any .ttf or .otf font you have downloaded
+- Sound and movement: the keyboard's key sound and press animation. Press keys in the
+  preview to try them
+- Single keys: tap a key in the preview and give it its own background, letter colour or
+  size, and its own sound or animation
 - Reset puts the style back without touching your keys
 
 Everything is saved automatically, and the real keyboard shows changes the next time it opens.
 
-Typing settings (home screen > **Settings**): vibration, the letter pop-up, the double-space
-full stop, suggestions, automatic fixing, learning and the last-copied button can each be
-switched off. Most of them are also behind the gear on the keyboard itself.
+Typing settings (home screen > **Settings**): vibration, key sounds and their volume, the
+keyboard's height, the letter pop-up, the double-space full stop, suggestions, automatic
+fixing, learning, text shortcuts and the last-copied button. Most of them are also behind
+the gear on the keyboard itself.
 
 Not in yet: dragging keys with a finger in the editor (keys move with buttons for now),
 emoji search and skin tones.
@@ -228,17 +260,25 @@ app/src/main/
     suggest/Lexicon.kt           the built-in word list in memory
     suggest/UserWords.kt         what the keyboard has learned from you, and its file format
     suggest/FieldRules.kt        which text boxes allow what (the password-box rule)
+    suggest/TypingSession.kt     the whole flow around the cursor: fixes, undo, shortcuts, learning
+    suggest/SuggestionFit.kt     fitting suggestions into the strip
+    model/Shortcuts.kt           text shortcuts
+    model/SavedGifs.kt           recent and favourite GIFs and stickers
+    model/EditActions.kt         the buttons of the text editing panel
     net/Http.kt                  the only code that goes online
     store/AppSettings.kt         the GIPHY key and the on/off settings
     store/ClipboardStore.kt      the clipboard history on disk
     store/WordStore.kt           loads the word list, saves the learned words
     ime/KeyBuilderIme.kt         the Android keyboard service
-    ime/SuggestController.kt     reads the words before the cursor and types fixes and suggestions
+    ime/SuggestController.kt     hands the real text box to TypingSession
+    ime/KeySounds.kt             plays key sounds
+    ime/Haptics.kt               the vibration
     ime/ClipboardController.kt   watches the phone's clipboard
     ime/GifController.kt         runs GIF searches and downloads
     ui/KeyboardView.kt           draws a keyboard and the strip (shared by the keyboard and the app)
     ui/PhoneColors.kt            reads the phone's colours, paints gradient backgrounds
-    ui/Panels.kt                 the clipboard, GIF, emoji and settings panels, and their drag handle
+    ui/Fonts.kt                  built-in letter styles and your own font files
+    ui/Panels.kt                 the clipboard, GIF, emoji, symbols, edit and settings panels
     ui/LayoutScreen.kt           the layout editor
     ui/StyleScreen.kt            the style editor
     ui/KeyboardsScreen.kt        the list of saved keyboards
@@ -248,7 +288,9 @@ app/src/main/
     ui/Widgets.kt                shared pieces: pills, rows, the text pop-up, auto-save
     ui/MainActivity.kt           home screen, navigation, and all saving
 app/src/test/                    tests for the model, the engine, suggestions and the panel logic
+  res/raw/key_*.wav              the key sounds
 tools/build_words.py             makes words.txt (only needed if you want a different list)
+tools/build_sounds.py            makes the key sounds (they are arithmetic, not recordings)
 ```
 
 `model` (except LayoutRepository), `engine`, `suggest` and `net` contain no Android code, so their
@@ -294,12 +336,12 @@ Change `qwerty.json`, run the app again, and the keyboard changes.
 | `action` | What a tap does, see below | type the label |
 | `width` | Relative width within the row | 1 |
 | `look` | `normal`, `function`, `accent` or `spacer` (an invisible gap) | `normal` |
-| `style` | Per-key `background`, `textColor`, `fontSizeSp` | theme values |
+| `style` | Per-key `background`, `textColor`, `fontSizeSp`, `sound`, `animation` | theme values |
 | `alt` | Long-press choices, for example `["1", "!"]` (up to 8) | none |
 
 **Actions:** `"shift"`, `"backspace"`, `"enter"`, `"space"`, `"none"`,
 `{ "type": "text", "text": "any text" }`, `{ "type": "layer", "to": "layerId" }` and
-`{ "type": "panel", "to": "clipboard" }` (or `"gif"`, `"emoji"`),
+`{ "type": "panel", "to": "clipboard" }` (or `"gif"`, `"sticker"`, `"emoji"`, `"symbols"`, `"edit"`, `"settings"`),
 `{ "type": "arrow", "to": "left" }` (or `"right"`, `"up"`, `"down"`) and
 `{ "type": "command", "to": "copy" }` (or `"paste"`, `"cut"`, `"selectAll"`).
 
@@ -313,8 +355,12 @@ boxes that only take numbers. Leave it out to always open the start layer.
 **Theme fields:** `background`, `keyColor`, `functionKeyColor`, `accentColor`, `keyPressedColor`,
 `textColor`, `accentTextColor`, `borderColor` (colours as `#RRGGBB` or `#AARRGGBB`), and
 `borderWidthDp`, `cornerRadiusDp`, `keyHeightDp`, `keyGapDp`, `fontSizeSp` (numbers),
-`fontFamily` (`sans`, `serif` or `mono`), `bold` and `hints` (`true` or `false`; hints are
-the small long-press characters in key corners). For the background: `backgroundOpacity` and
+`fontFamily` (`sans`, `serif`, `mono`, `condensed`, `light`, `medium`, `black`, `thin`,
+`casual`, `cursive`, `smallcaps`, `serif-mono`, or `file:` and the name of a font file you
+added), `bold` and `hints` (`true` or `false`; hints are the small long-press characters in
+key corners), `sound` (`none`, `click`, `pop`, `tick`, `thock`, `drop`, `beep`,
+`typewriter` or `phone`) and `animation` (`none`, `sink`, `pop`, `bounce`, `glow`, `tilt`
+or `fade`). For the background: `backgroundOpacity` and
 `keyOpacity` (0 to 1), `backgroundBlur` (0 to 40), `backgroundEnd` (a second colour, which makes the background a
 gradient), `gradient` (`down`, `across` or `diagonal`), and `colors` (`own`, or `phone` to
 take the colours from the phone).
@@ -348,8 +394,15 @@ the Tenor API to outside developers on 30 June 2026). To switch provider later, 
   `learned_words.txt`, in the app's private storage; you can read its format in
   `suggest/UserWords.kt` and erase it from **Settings**. The code that learns has no access
   to the code that goes online.
-- In password boxes the keyboard does not read, suggest, correct or learn. The rule is
-  `suggest/FieldRules.kt` and it has its own tests.
+- In password boxes the keyboard does not read, suggest, correct, expand or learn. The
+  rule is `suggest/FieldRules.kt`, and the stress test checks, over millions of random key
+  presses, that such a box is never once looked at.
+- Text shortcuts are kept on the phone with the other settings. To spot one, the keyboard
+  looks at the last few characters before the cursor, also in e-mail and link boxes where
+  it otherwise does nothing; it keeps none of what it sees.
+- The key sounds were made by a small script (`tools/build_sounds.py`), not recorded, so
+  there is nobody to credit for them. A font file you add is copied into the app's private
+  storage; make sure you are allowed to use the font.
 - The last-copied button reads the phone's clipboard when you copy something or open the
   keyboard, and shows it. It stores nothing.
 - "Add new screenshots to the clipboard" is off until you switch it on. It needs Android's
@@ -388,43 +441,81 @@ character or a whole group and it appears in the app.
 
 ## How it was checked
 
-Phases 1 to 8 have been built and run on a phone.
+The earlier phases have been built and run on a phone.
 
-For phase 9, everything without Android code was compiled with warnings treated as errors
-and its 181 tests passed (166 before this phase). The new tests cover your own corrections,
-the language leaning, the blur setting, the vibration strengths, the panel height while
-searching, and telling screenshots from other pictures. Writing them turned up a fault in
-phase 8, now fixed: once you had typed a word twice, slips for that word stopped being
-corrected.
+For phase 10, everything without Android code was compiled with warnings treated as errors
+and its 250 tests passed (181 before this phase). The Android parts were written without
+access to the Android build tools, so **phase 10 has not been built or run yet**. The parts
+that talk to Android without drawing anything (clipboard, sounds, fonts, vibration,
+settings, GIF saving) were type-checked against small stand-ins for the Android classes;
+the drawing code was only checked for syntax. The key sounds were made by formula and have
+not been listened to.
 
-The Android parts were written without access to the Android build tools, so **phase 9 has
-not been built or run yet**. The parts that talk to Android without drawing anything (the
-clipboard, the gallery query for screenshots, vibration, settings) were type-checked against
-small stand-ins for the Android classes; the drawing code was only checked for syntax.
+### The stress test
+
+`StressTest.kt` throws random actions at each part and checks after every one that nothing
+crashed and that things which must always be true still are. With fixed seeds, so any
+failure can be repeated. The longest run was about 14 million random actions over 16 minutes:
+
+- 300,000 random edits of a keyboard (every kind the two editors can make, including
+  nonsense positions), each followed by saving and loading it again
+- 960,000 key presses on randomly edited keyboards, some edited while in use
+- 80,000 damaged layout files: each must load or be explained in words, never crash
+- 3.2 million actions in pretend text boxes: typing, backspace, tapping suggestions, moving
+  the cursor, switching box, switching settings. Checked throughout: a letter typed is the
+  letter that appears, a box where nothing is allowed is never read, at most three suggestions
+- 720,000 words typed with a separator, checking that whenever the keyboard changed a word
+  one backspace put back exactly what was typed
+- 2.4 million keys with autocorrect and shortcuts off, checking the keyboard typed exactly
+  what was pressed
+- random text of every kind (emoji, half characters, other alphabets, tabs) through the
+  suggestions, the word list, the learned-words file and every saved setting, plus 120,000
+  damaged copies of those files
+
+What it found, all fixed:
+
+1. A layout file with a size of `NaN` ("not a number") or a number too big to hold was
+   accepted. It would have crashed the keyboard when drawn and the app when saved. Such a
+   file is now refused with an explanation, and every place that rounds a size copes with
+   such values.
+2. A word containing a tab or line break could reach the learned-words file and garble it.
+   Words like that are now never stored.
+3. Not a fault but worth knowing: unpinning an old clipboard item can leave more than 30
+   unpinned items until the next thing is copied. That is deliberate, so unpinning never
+   throws an item away on the spot.
+
+Working out suggestions for one key press takes under a millisecond on average on a
+computer, and the test fails if any single one takes 400 ms. A phone is several times slower.
+
+**What a stress test like this cannot do** is press a real screen. It says nothing about
+how panels are laid out, whether an animation looks right, or how Android's own parts
+behave. Those need the phone.
 
 Things that could only be reasoned about, not tried, and are worth watching:
 
-- **Blur.** It uses Android's "background blur" for windows. Whether a phone allows it is up
-  to its maker, and it has never been tried on a keyboard window here. If the style screen
-  says the phone allows it and nothing blurs, or the blur covers more than the keyboard,
-  say so.
-- **Screenshots.** Found by folder and file name ("Screenshots", "Screenshot_..."), which is
-  how Samsung, Pixel and most phones save them. A phone that names them differently needs
-  its name added to `isScreenshot` in `model/ClipHistory.kt`.
-- **Searching over the library.** The keys are drawn over the panel inside one window. Check
-  that a tap between keys never sends a GIF from underneath, and that the library above the
-  keys still scrolls.
-- **Vibration strength.** The numbers behind the slider (5 to 35 milliseconds, soft to full)
-  are a first guess. If the whole range feels too weak or too strong, they are two lines in
-  `KeyboardEngine.buzzFor`.
+- **Key sounds.** Whether they are pleasant, too quiet or too sharp is for your ears. Each
+  is a few lines in `tools/build_sounds.py`. The first sound after the keyboard starts may
+  come a moment late while the sounds load.
+- **Animations** are drawn with Compose's animation functions, used here for the first
+  time in this project. Check that fast typing still feels instant; "None" costs nothing.
+- **The edit panel** sends key presses with Ctrl and Shift held, as a real keyboard would.
+  Most text boxes understand all of them; a few apps ignore undo and redo, or word jumps.
+- **Fonts.** The built-in styles depend on the phone; where the phone has no such font the
+  letters simply look normal. On Samsung phones with a custom system font several styles
+  may look alike.
+- **Fitting suggestions** estimates how wide letters are. If words are still clipped, or
+  look smaller than they need to be, the estimate is one number in `suggest/SuggestionFit.kt`.
+- The notes from phase 9 about blur and screenshots still apply.
 
 ## Roadmap
 
-9. **Suggestion extras:** removing a single learned word from the strip, emoji suggestions,
-   slips judged by your own key arrangement instead of QWERTY
-10. **Editor extras:** dragging keys with a finger
-11. **Panel extras:** emoji search and skin tones
-12. **Polish:** key sounds, landscape tuning
+11. **Suggestion extras:** removing a single learned word from the strip, emoji suggestions,
+    slips judged by your own key arrangement instead of QWERTY
+12. **Hindi script:** a Devanagari layout, or typing Hinglish and getting Hindi
+13. **Layout extras:** one-handed mode, a separate landscape layout, a keyboard per app,
+    dragging keys with a finger in the editor
+14. **Look extras:** a photo as the background, a light and a dark look that switch with the phone
+15. **Panel extras:** emoji search and skin tones, searching and editing the clipboard
 
 Decided against: sharing keyboards as files, and swipe (glide) typing.
 

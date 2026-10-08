@@ -2,6 +2,10 @@ package app.keybuilder.store
 
 import android.content.Context
 import android.content.SharedPreferences
+import app.keybuilder.model.MAX_HEIGHT_PERCENT
+import app.keybuilder.model.MIN_HEIGHT_PERCENT
+import app.keybuilder.model.SavedGifs
+import app.keybuilder.model.Shortcuts
 
 /** How typing feels. These apply to every keyboard. */
 data class TypingSettings(
@@ -23,6 +27,14 @@ data class TypingSettings(
     val learn: Boolean = true,
     /** Show the most recently copied thing on the strip, next to the gear, for one-tap pasting. */
     val quickClip: Boolean = true,
+    /** Play a sound when a key is touched. Which sound is part of each keyboard's style. */
+    val sounds: Boolean = false,
+    /** How loud key sounds are, 5 to 100. */
+    val soundVolume: Int = 60,
+    /** Play key sounds even while the phone is on silent or vibrate. */
+    val soundsWhenSilent: Boolean = false,
+    /** How tall the keyboard is, as a percentage of its normal height. Letters and icons scale with it. */
+    val keyboardHeight: Int = 100,
 )
 
 /** Small settings shared by the app and the keyboard service. */
@@ -43,6 +55,14 @@ object AppSettings {
     private const val VIBRATE_STRENGTH = "vibrate_strength"
     private const val SCREENSHOTS = "clipboard_screenshots"
     private const val LAST_SCREENSHOT = "last_screenshot_seconds"
+    private const val SOUNDS = "key_sounds"
+    private const val SOUND_VOLUME = "key_sound_volume"
+    private const val SOUNDS_WHEN_SILENT = "key_sounds_when_silent"
+    private const val KEYBOARD_HEIGHT = "keyboard_height_percent"
+    private const val SHORTCUTS = "text_shortcuts"
+    private const val SAVED_GIFS = "saved_gifs"
+    private const val SAVED_STICKERS = "saved_stickers"
+    private const val RECENT_SYMBOLS = "recent_symbols"
 
     /** The user's own GIPHY API key, or empty if none has been entered. */
     fun giphyKey(context: Context): String = prefs(context).getString(GIPHY_KEY, "").orEmpty().trim()
@@ -90,6 +110,10 @@ object AppSettings {
             autocorrect = p.getBoolean(AUTOCORRECT, true),
             learn = p.getBoolean(LEARN, true),
             quickClip = p.getBoolean(QUICK_CLIP, true),
+            sounds = p.getBoolean(SOUNDS, false),
+            soundVolume = p.getInt(SOUND_VOLUME, 60).coerceIn(5, 100),
+            soundsWhenSilent = p.getBoolean(SOUNDS_WHEN_SILENT, false),
+            keyboardHeight = p.getInt(KEYBOARD_HEIGHT, 100).coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT),
         )
     }
 
@@ -104,6 +128,10 @@ object AppSettings {
             .putBoolean(AUTOCORRECT, settings.autocorrect)
             .putBoolean(LEARN, settings.learn)
             .putBoolean(QUICK_CLIP, settings.quickClip)
+            .putBoolean(SOUNDS, settings.sounds)
+            .putInt(SOUND_VOLUME, settings.soundVolume.coerceIn(5, 100))
+            .putBoolean(SOUNDS_WHEN_SILENT, settings.soundsWhenSilent)
+            .putInt(KEYBOARD_HEIGHT, settings.keyboardHeight.coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT))
             .apply()
     }
 
@@ -113,6 +141,29 @@ object AppSettings {
 
     fun setRecentEmoji(context: Context, emoji: List<String>) {
         prefs(context).edit().putString(RECENT_EMOJI, emoji.joinToString("\n")).apply()
+    }
+
+    /** Your text shortcuts ("omw" becomes "on my way"). */
+    fun shortcuts(context: Context): Shortcuts = Shortcuts.parse(prefs(context).getString(SHORTCUTS, "").orEmpty())
+
+    fun setShortcuts(context: Context, shortcuts: Shortcuts) {
+        prefs(context).edit().putString(SHORTCUTS, shortcuts.toJson()).apply()
+    }
+
+    /** The GIFs (or stickers) sent recently and marked as favourites. */
+    fun savedGifs(context: Context, stickers: Boolean): SavedGifs =
+        SavedGifs.parse(prefs(context).getString(if (stickers) SAVED_STICKERS else SAVED_GIFS, "").orEmpty())
+
+    fun setSavedGifs(context: Context, stickers: Boolean, saved: SavedGifs) {
+        prefs(context).edit().putString(if (stickers) SAVED_STICKERS else SAVED_GIFS, saved.toJson()).apply()
+    }
+
+    /** The symbols and faces used most recently in the symbols panel, newest first. */
+    fun recentSymbols(context: Context): List<String> =
+        prefs(context).getString(RECENT_SYMBOLS, "").orEmpty().split("\n").filter { it.isNotEmpty() }
+
+    fun setRecentSymbols(context: Context, symbols: List<String>) {
+        prefs(context).edit().putString(RECENT_SYMBOLS, symbols.joinToString("\n")).apply()
     }
 
     private fun prefs(context: Context): SharedPreferences = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)

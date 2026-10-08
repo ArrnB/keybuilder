@@ -34,6 +34,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.ime.ClipboardController
 import app.keybuilder.ime.Haptics
+import app.keybuilder.ime.KeySounds
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 import app.keybuilder.model.uniqueKeyboardId
@@ -93,6 +95,14 @@ class MainActivity : ComponentActivity() {
                 var clipboardCount by remember { mutableStateOf(0) }
                 var typing by remember { mutableStateOf(AppSettings.typing(context)) }
                 var learnedCount by remember { mutableStateOf(0) }
+                var shortcuts by remember { mutableStateOf(AppSettings.shortcuts(context)) }
+
+                // For hearing a key sound while choosing one. Let go of when the app is closed.
+                val sounds = remember { KeySounds(context).also { it.prepare(typing.soundsWhenSilent) } }
+                DisposableEffect(Unit) { onDispose { sounds.release() } }
+                val previewSound: (String) -> Unit = { sound ->
+                    sounds.play(sound, typing.soundVolume, typing.soundsWhenSilent)
+                }
                 var screenshotsOn by remember { mutableStateOf(AppSettings.screenshotsEnabled(context)) }
                 var screenshotNote by remember { mutableStateOf<String?>(null) }
 
@@ -141,7 +151,13 @@ class MainActivity : ComponentActivity() {
                 when (screen) {
                     SCREEN_KEYS -> LayoutScreen(keyboard = keyboard, onChange = replace, onSave = save, onBack = goHome)
 
-                    SCREEN_STYLE -> StyleScreen(keyboard = keyboard, onChange = replace, onSave = save, onBack = goHome)
+                    SCREEN_STYLE -> StyleScreen(
+                        keyboard = keyboard,
+                        onChange = replace,
+                        onSave = save,
+                        onBack = goHome,
+                        onPreviewSound = previewSound,
+                    )
 
                     SCREEN_KEYBOARDS -> KeyboardsScreen(
                         keyboards = keyboards,
@@ -213,6 +229,12 @@ class MainActivity : ComponentActivity() {
                             if (changed.vibrate && (changed.vibrateStrength != typing.vibrateStrength || !typing.vibrate)) {
                                 Haptics.buzz(context, changed.vibrateStrength)
                             }
+                            // The same for sounds: switching them on or changing how they play lets you hear one.
+                            val soundChanged = changed.soundVolume != typing.soundVolume ||
+                                changed.soundsWhenSilent != typing.soundsWhenSilent || !typing.sounds
+                            if (changed.sounds && soundChanged) {
+                                sounds.play(keyboard.theme.sound, changed.soundVolume, changed.soundsWhenSilent)
+                            }
                             AppSettings.setTyping(context, changed)
                             typing = changed
                         },
@@ -220,6 +242,11 @@ class MainActivity : ComponentActivity() {
                         onForgetWords = {
                             WordStore.forgetEverything(context)
                             learnedCount = 0
+                        },
+                        shortcuts = shortcuts,
+                        onShortcuts = { changed ->
+                            AppSettings.setShortcuts(context, changed)
+                            shortcuts = changed
                         },
                         giphyKey = giphyKey,
                         onGiphyKey = { key ->

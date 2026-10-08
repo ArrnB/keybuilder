@@ -1,5 +1,8 @@
 package app.keybuilder.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,6 +13,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -47,9 +51,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -71,13 +78,17 @@ import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.PANELS
 import app.keybuilder.model.TOOLBAR_HEIGHT_DP
 import app.keybuilder.model.Theme
+import app.keybuilder.model.animationFor
 import app.keybuilder.model.isDarkColor
+import app.keybuilder.model.isFixedWidthFont
+import app.keybuilder.model.motionFor
 import app.keybuilder.model.panelName
 import app.keybuilder.model.parseHexColor
 import app.keybuilder.model.solid
 import app.keybuilder.model.withOpacity
 import app.keybuilder.suggest.Suggestion
 import app.keybuilder.suggest.SuggestionKind
+import app.keybuilder.suggest.fitSuggestions
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -157,7 +168,7 @@ private class Holder<T>(var value: T? = null)
  * typing (used to pick a key to edit), and [selected] draws a ring around one key.
  *
  * The real keyboard uses four more: [onAlternate] is told which long-press choice was
- * picked, [onKeyDown] is called the moment any key is touched (for vibration),
+ * picked, [onKeyDown] is told which key the moment one is touched (for vibration and sound),
  * [showPopups] turns on the enlarged letter shown above a key while it is pressed,
  * [onCursor] is told "left", "right", "up" or "down" while the held space bar is slid, and
  * [strip] puts suggestions and the last copied thing on the strip.
@@ -173,14 +184,15 @@ fun KeyboardView(
     showToolbar: Boolean = true,
     onOpenPanel: (String) -> Unit = {},
     onAlternate: (KeyDef, String) -> Unit = { _, _ -> },
-    onKeyDown: () -> Unit = {},
+    onKeyDown: (KeyDef) -> Unit = {},
     showPopups: Boolean = false,
     onCursor: (String) -> Unit = {},
     strip: StripExtras? = null,
 ) {
     // The theme as it should look right now: with the phone's colours, if it asks for them.
     val theme = def.theme.resolved()
-    val palette = remember(theme) { Palette(theme) }
+    val context = LocalContext.current
+    val palette = remember(theme) { Palette(theme, Fonts.family(context, theme.fontFamily)) }
     val layer = KeyboardEngine.currentLayer(def, state)
     val shift = KeyboardEngine.effectiveShift(def, state)
     val gap = theme.keyGapDp.dp
@@ -229,7 +241,7 @@ fun KeyboardView(
                                 hint = if (theme.hints) choices.hint else null,
                                 previews = showPopups && !editing,
                                 container = container,
-                                onDown = onKeyDown,
+                                onDown = { onKeyDown(keyDef) },
                                 onPopup = { popup = it },
                                 onPopupDone = { if (popup?.owner == pos) popup = null },
                                 onTap = { if (onKeyAt != null) onKeyAt(pos) else onKey(keyDef) },
@@ -277,12 +289,27 @@ private fun ToolbarStrip(palette: Palette, shortcuts: Boolean, onOpenPanel: (Str
                     KeyIcon(KeyAction.Arrow("left"), ShiftState.OFF, palette.text, sizeDp = 16f)
                 }
             }
-            Row(modifier = Modifier.weight(1f).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                suggestions.forEachIndexed { index, suggestion ->
-                    if (index > 0) {
-                        Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 5.dp).background(palette.text.copy(alpha = 0.2f)))
+            // BoxWithConstraints tells us how wide the room for the words is, so they can be fitted into it.
+            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                // Text sizes follow the phone's "font size" setting; widths do not. Allow for that.
+                val room = maxWidth.value / LocalDensity.current.fontScale.coerceAtLeast(0.5f)
+                val fit = remember(suggestions, room, palette.fixedWidth) {
+                    fitSuggestions(suggestions.map { shownText(it) }, room, palette.fixedWidth)
+                }
+                Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    suggestions.forEachIndexed { index, suggestion ->
+                        if (index > 0) {
+                            Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 5.dp).background(palette.text.copy(alpha = 0.2f)))
+                        }
+                        SuggestionCell(
+                            palette = palette,
+                            suggestion = suggestion,
+                            label = fit.labels.getOrElse(index) { shownText(suggestion) },
+                            share = fit.weights.getOrElse(index) { 1f },
+                            fontSp = fit.fontSp,
+                            onClick = { extras.onSuggestion(suggestion) },
+                        )
                     }
-                    SuggestionCell(palette, suggestion, onClick = { extras.onSuggestion(suggestion) })
                 }
             }
         } else if (shortcuts) {
@@ -323,29 +350,48 @@ private fun ToolbarStrip(palette: Palette, shortcuts: Boolean, onOpenPanel: (Str
     }
 }
 
-/** One suggestion. The word autocorrect will put in is drawn bold; your own typing is shown in quotes. */
+/** A suggestion as it is written on the strip: your own typing in quotes, a shortcut's text on one line. */
+private fun shownText(suggestion: Suggestion): String = when (suggestion.kind) {
+    SuggestionKind.TYPED -> "\u201C${suggestion.text}\u201D"
+    SuggestionKind.SHORTCUT -> suggestion.text.replace('\n', ' ')
+    else -> suggestion.text
+}
+
+/**
+ * One suggestion. What will be put in automatically (a correction, or a shortcut's text)
+ * is drawn bold. [label], [share] of the width and [fontSp] come from fitSuggestions, which
+ * makes sure three long words can still be told apart.
+ */
 @Composable
-private fun RowScope.SuggestionCell(palette: Palette, suggestion: Suggestion, onClick: () -> Unit) {
-    val correction = suggestion.kind == SuggestionKind.CORRECTION
+private fun RowScope.SuggestionCell(
+    palette: Palette,
+    suggestion: Suggestion,
+    label: String,
+    share: Float,
+    fontSp: Float,
+    onClick: () -> Unit,
+) {
+    val automatic = suggestion.kind == SuggestionKind.CORRECTION || suggestion.kind == SuggestionKind.SHORTCUT
     val typed = suggestion.kind == SuggestionKind.TYPED
     Box(
         modifier = Modifier
-            .weight(1f)
+            .weight(share.coerceAtLeast(0.1f))
             .fillMaxHeight()
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 3.dp),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
-            text = if (typed) "\u201C${suggestion.text}\u201D" else suggestion.text,
+            text = label,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
             style = TextStyle(
                 color = if (typed) palette.text.copy(alpha = 0.7f) else palette.text,
-                fontSize = 15.sp,
+                fontSize = fontSp.sp,
                 fontFamily = palette.fontFamily,
-                fontWeight = if (correction) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (automatic) FontWeight.Bold else FontWeight.Normal,
                 textAlign = TextAlign.Center,
             ),
         )
@@ -376,7 +422,7 @@ private fun QuickClipButton(palette: Palette, label: String?, onTap: () -> Unit,
         if (label != null) {
             BasicText(
                 text = label,
-                modifier = Modifier.widthIn(max = 110.dp),
+                modifier = Modifier.widthIn(max = 55.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
@@ -404,6 +450,10 @@ private fun StripButton(palette: Palette, onClick: () -> Unit, padding: Float = 
 /** A small line drawing for a panel: a clipboard, a boxed "GIF", a smiling face, or a gear. */
 @Composable
 internal fun PanelGlyph(panel: String, tint: Color, sizeDp: Float = 20f) {
+    if (panel == "symbols") {
+        BasicText("Ω", style = TextStyle(color = tint, fontSize = (sizeDp * 0.9f).sp, fontWeight = FontWeight.Bold))
+        return
+    }
     if (panel == "gif") {
         Box(
             modifier = Modifier
@@ -451,6 +501,25 @@ internal fun PanelGlyph(panel: String, tint: Color, sizeDp: Float = 20f) {
                     size = Size(w * 0.40f, h * 0.40f),
                     style = line,
                 )
+            }
+
+            "edit" -> {
+                // A text cursor (an I shape) with an arrow head on each side of it.
+                drawLine(tint, Offset(w * 0.50f, h * 0.16f), Offset(w * 0.50f, h * 0.84f), w * 0.08f, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.38f, h * 0.16f), Offset(w * 0.62f, h * 0.16f), w * 0.08f, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.38f, h * 0.84f), Offset(w * 0.62f, h * 0.84f), w * 0.08f, StrokeCap.Round)
+                val left = Path().apply {
+                    moveTo(w * 0.24f, h * 0.34f)
+                    lineTo(w * 0.08f, h * 0.50f)
+                    lineTo(w * 0.24f, h * 0.66f)
+                }
+                val right = Path().apply {
+                    moveTo(w * 0.76f, h * 0.34f)
+                    lineTo(w * 0.92f, h * 0.50f)
+                    lineTo(w * 0.76f, h * 0.66f)
+                }
+                drawPath(left, tint, style = line)
+                drawPath(right, tint, style = line)
             }
 
             "sticker" -> {
@@ -580,10 +649,30 @@ private fun RowScope.KeyCell(
         KeyLook.FUNCTION -> palette.function
         else -> palette.key
     }
+    // How this key moves when pressed: its own animation, or the theme's.
+    val motion = remember(theme.animation, keyDef.style?.animation) { motionFor(theme.animationFor(keyDef)) }
+    val animated = !editing && !isGap && (motion.moves || motion.glow || motion.lingers)
+    // 0 = at rest, 1 = fully pressed. Going down is quick so even a fast tap shows; coming back is slower.
+    val press = if (!animated) {
+        if (pressed) 1f else 0f
+    } else {
+        animateFloatAsState(
+            targetValue = if (pressed) 1f else 0f,
+            animationSpec = when {
+                pressed -> tween(durationMillis = 45)
+                motion.bouncy -> spring(dampingRatio = 0.35f, stiffness = 500f)
+                motion.lingers -> tween(durationMillis = 320)
+                else -> tween(durationMillis = 150)
+            },
+            label = "key press",
+        ).value
+    }
+    val shade = if (animated && motion.lingers) press.coerceIn(0f, 1f) else if (pressed) 1f else 0f
     val background = when {
         isGap -> Color.Transparent
-        pressed -> palette.pressed
-        else -> restingColor
+        shade <= 0f -> restingColor
+        shade >= 1f -> palette.pressed
+        else -> lerp(restingColor, palette.pressed, shade)
     }
     val foreground = keyDef.style?.textColor?.toColorOrNull()
         ?: if (keyDef.look == KeyLook.ACCENT) palette.accentText else palette.text
@@ -754,8 +843,28 @@ private fun RowScope.KeyCell(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(
+                    if (animated && motion.moves) {
+                        // Scaling the whole key cap keeps its letter or icon in proportion.
+                        Modifier.graphicsLayer {
+                            val size = 1f + (motion.scale - 1f) * press
+                            scaleX = size
+                            scaleY = size
+                            rotationZ = motion.tiltDegrees * press
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
                 .background(background, shape)
                 .then(outline)
+                .then(
+                    if (animated && motion.glow && press > 0.02f) {
+                        Modifier.border(2.5.dp, palette.accentSolid.copy(alpha = press.coerceIn(0f, 1f)), shape)
+                    } else {
+                        Modifier
+                    },
+                )
                 .then(if (selected) Modifier.border(2.5.dp, palette.selection, shape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
@@ -890,7 +999,10 @@ internal fun KeyIcon(action: KeyAction, shift: ShiftState, tint: Color, sizeDp: 
 }
 
 /** The theme's colour text turned into real colours once, instead of on every redraw. */
-private class Palette(theme: Theme) {
+private class Palette(theme: Theme, val fontFamily: FontFamily) {
+    /** Typewriter fonts need more room per letter, which matters when fitting suggestions. */
+    val fixedWidth: Boolean = isFixedWidthFont(theme.fontFamily)
+
     /** The background as paint: one colour or a fade between two, as see-through as the theme says. */
     val backgroundPaint: Brush = backgroundBrush(theme)
 
@@ -912,12 +1024,6 @@ private class Palette(theme: Theme) {
 
     /** The ring around a selected key: white on dark keyboards, black on light ones. */
     val selection = if (isDarkColor(parseHexColor(theme.background) ?: 0)) Color.White else Color.Black
-
-    val fontFamily: FontFamily = when (theme.fontFamily) {
-        "serif" -> FontFamily.Serif
-        "mono" -> FontFamily.Monospace
-        else -> FontFamily.SansSerif
-    }
 }
 
 /** "#RRGGBB" text as a Compose colour, or null if the text is not a colour. */

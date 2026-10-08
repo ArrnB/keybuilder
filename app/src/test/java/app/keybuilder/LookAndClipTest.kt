@@ -293,11 +293,14 @@ class LookAndClipTest {
     @Test
     fun theLastCopiedButtonShowsAShortOneLineLabel() {
         assertEquals("hello", quickClipLabel("hello"))
-        assertEquals("two lines", quickClipLabel("  two\n   lines  "))
+        assertEquals("two", quickClipLabel("  two\n  "))
+        assertEquals("a b", quickClipLabel("  a\n   b  "))
         val long = quickClipLabel("https://example.com/a/very/long/link")
-        assertEquals(16, long.length)
+        assertEquals(8, long.length)
         assertTrue(long.endsWith("…"))
-        assertFalse(quickClipLabel("exactly 16 chars").endsWith("…"))
+        assertFalse(quickClipLabel("8 chars!").endsWith("…"))
         assertEquals("", quickClipLabel("   "))
+        // It can still be asked for a longer label.
+        assertEquals("two lines", quickClipLabel("two\nlines", max = 16))
     }
 }

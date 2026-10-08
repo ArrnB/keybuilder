@@ -6,22 +6,25 @@ import android.view.inputmethod.InputConnection
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.keybuilder.model.Shortcuts
 import app.keybuilder.store.TypingSettings
 import app.keybuilder.store.WordStore
 import app.keybuilder.suggest.FieldRules
 import app.keybuilder.suggest.Suggestion
-import app.keybuilder.suggest.SuggestionKind
-import app.keybuilder.suggest.TypingContext
+import app.keybuilder.suggest.TextBox
+import app.keybuilder.suggest.TypingSession
+import app.keybuilder.suggest.TypingSwitches
 
 /**
- * Connects the suggestion engine to the text box being typed in.
+ * Connects suggestions, autocorrect and text shortcuts to the text box being typed in.
  *
- * The engine itself (app.keybuilder.suggest) knows nothing about Android. This class reads
- * the few words before the cursor, asks the engine, and types what comes back.
+ * All the deciding is done by TypingSession (app.keybuilder.suggest), which knows nothing
+ * about Android and is unit tested with a pretend text box. This class only hands it the
+ * real text box and copies what it wants shown into something Compose redraws from.
  *
- * Privacy, in one place: [rules] is worked out for every text box by FieldRules. In a
- * password box all three permissions are off, and every function here returns before it
- * reads anything from the box. Learned words go to one file in the app's private storage.
+ * Privacy, in one place: what a text box allows is worked out by FieldRules. In a password
+ * box nothing is allowed, and TypingSession returns before reading anything from the box.
+ * Learned words go to one file in the app's private storage.
  */
 class SuggestController(private val context: Context) {
 
@@ -33,174 +36,96 @@ class SuggestController(private val context: Context) {
     var hidden by mutableStateOf(false)
         private set
 
-    private var rules = FieldRules.NOTHING
-    private var settings = TypingSettings()
-    private var hasSelection = false
-
-    /** The last automatic correction, so the next backspace can take it back. */
-    private var undo: Undo? = null
-
-    private class Undo(val context: TypingContext, val original: String, val corrected: String, val separator: String)
-
-    /** True right after a suggestion was tapped: it added a space that punctuation should replace. */
-    private var addedSpace = false
-
-    private val canLearn: Boolean get() = rules.learn && settings.learn
-    private val canCorrect: Boolean get() = rules.correct && settings.autocorrect
-    private val canSuggest: Boolean get() = rules.suggest && settings.suggestions
+    private val session = TypingSession { WordStore.engine }
 
     fun load(onReady: () -> Unit) = WordStore.load(context, onReady)
 
     /** A text box got the keyboard. Decides what is allowed in it. */
-    fun startField(info: EditorInfo?, typing: TypingSettings, connection: InputConnection?) {
-        settings = typing
-        rules = if (info == null) FieldRules.NOTHING else FieldRules.forField(info.inputType, info.imeOptions)
-        undo = null
-        addedSpace = false
-        hidden = false
-        hasSelection = info != null && info.initialSelStart != info.initialSelEnd
-        refresh(connection)
+    fun startField(info: EditorInfo?, typing: TypingSettings, shortcuts: Shortcuts, connection: InputConnection?) {
+        val rules = if (info == null) FieldRules.NOTHING else FieldRules.forField(info.inputType, info.imeOptions)
+        val selection = info != null && info.initialSelStart != info.initialSelEnd
+        session.start(rules, switches(typing), shortcuts, selection, box(connection))
+        show()
     }
 
     fun settingsChanged(typing: TypingSettings, connection: InputConnection?) {
-        settings = typing
-        refresh(connection)
+        session.switchesChanged(switches(typing), box(connection))
+        show()
     }
 
     /** The cursor moved or text was selected, by the user or by the app. */
     fun selectionChanged(start: Int, end: Int, connection: InputConnection?) {
-        hasSelection = start != end
-        refresh(connection)
+        session.selectionChanged(start != end, box(connection))
+        show()
     }
 
     /** Nothing to suggest for now (a panel is open, or search words are being typed). */
     fun clear() {
-        suggestions = emptyList()
-        undo = null
-        addedSpace = false
+        session.clear()
+        show()
     }
 
     /** The user tapped the arrow to get the shortcut buttons back. */
     fun showTools() {
-        hidden = true
+        session.showTools()
+        show()
     }
 
     /** Something other than a key press changed the text (an emoji, a paste). */
     fun textChangedOtherwise(connection: InputConnection?) {
-        undo = null
-        addedSpace = false
-        refresh(connection)
+        session.textChangedOtherwise(box(connection))
+        show()
     }
 
-    /**
-     * Call just before [text] is typed. If [text] ends a word (a space, a comma, enter...),
-     * this is the moment the word is corrected and learned.
-     */
+    /** Call just before [text] is typed: a word that ends here is corrected, expanded and learned. */
     fun beforeTyping(connection: InputConnection, text: String) {
-        undo = null
-        hidden = false
-        if (addedSpace) {
-            addedSpace = false
-            // "word " + "." should be "word.", not "word ."
-            if (text.length == 1 && text[0] in CLOSES_UP) {
-                if (connection.getTextBeforeCursor(1, 0)?.toString() == " ") connection.deleteSurroundingText(1, 0)
-                return
-            }
-        }
-        val engine = WordStore.engine ?: return
-        if (!canLearn && !canCorrect) return
-        if (hasSelection || !endsAWord(text)) return
-        val typing = contextAt(connection) ?: return
-        if (typing.word.isEmpty()) return
-
-        var finished = typing.word
-        // Enter often sends the message, after which a correction could not be undone. So enter never corrects.
-        if (canCorrect && text != "\n") {
-            val fixed = engine.correction(typing)
-            if (fixed != null && fixed != typing.word) {
-                connection.beginBatchEdit()
-                connection.deleteSurroundingText(typing.word.length, 0)
-                connection.commitText(fixed, 1)
-                connection.endBatchEdit()
-                undo = Undo(typing, original = typing.word, corrected = fixed, separator = text)
-                finished = fixed
-            }
-        }
-        if (canLearn) engine.learn(typing, finished)
+        session.beforeTyping(Box(connection), text)
+        show()
     }
 
-    /**
-     * Call when backspace is pressed. If the last thing that happened was an automatic
-     * correction, this puts back what was typed, remembers to leave that word alone from
-     * now on, and returns true: the backspace has done its job.
-     */
+    /** Call when backspace is pressed. True if it took back an automatic change instead of deleting. */
     fun undoCorrection(connection: InputConnection): Boolean {
-        val last = undo
-        undo = null
-        hidden = false
-        addedSpace = false
-        if (last == null) return false
-        val expected = last.corrected + last.separator
-        if (connection.getTextBeforeCursor(expected.length, 0)?.toString() != expected) return false
-        connection.beginBatchEdit()
-        connection.deleteSurroundingText(expected.length, 0)
-        connection.commitText(last.original + last.separator, 1)
-        connection.endBatchEdit()
-        WordStore.engine?.correctionUndone(last.context, last.original, last.corrected, remember = canLearn)
-        return true
+        val undone = session.undoLastChange(Box(connection))
+        show()
+        return undone
     }
 
-    /** A suggestion was tapped: it replaces the word being typed and a space follows. */
+    /** A suggestion was tapped. */
     fun pick(connection: InputConnection, suggestion: Suggestion) {
-        val engine = WordStore.engine ?: return
-        if (!canSuggest || hasSelection) return
-        val typing = contextAt(connection) ?: return
-        connection.beginBatchEdit()
-        if (typing.word.isNotEmpty()) connection.deleteSurroundingText(typing.word.length, 0)
-        connection.commitText(suggestion.text + " ", 1)
-        connection.endBatchEdit()
-        // Tapping your own word means "leave it as I typed it".
-        if (suggestion.kind == SuggestionKind.TYPED) engine.keep(suggestion.text, remember = canLearn)
-        if (canLearn) {
-            engine.learn(typing, suggestion.text)
-            // Picking a different word than you typed is remembered as your own correction.
-            if (suggestion.kind != SuggestionKind.TYPED) engine.learnChoice(typing, suggestion.text)
-        }
-        undo = null
-        addedSpace = true
-        hidden = false
-        refresh(connection)
+        session.pick(Box(connection), suggestion)
+        show()
     }
 
     /** Works out the suggestions again from the text before the cursor. */
     fun refresh(connection: InputConnection?) {
-        val engine = WordStore.engine
-        if (engine == null || connection == null || !canSuggest || hasSelection) {
-            suggestions = emptyList()
-            return
-        }
-        val typing = contextAt(connection)
-        suggestions = if (typing == null) emptyList() else engine.suggestions(typing, autocorrect = canCorrect)
+        session.refresh(box(connection))
+        show()
     }
 
     /** Saves what was learned. Called when the keyboard is put away. */
     fun save() = WordStore.save(context)
 
-    /**
-     * The words around the cursor, or null when the cursor is in the middle of a word
-     * (changing half a word would only make a mess) or the box will not say.
-     */
-    private fun contextAt(connection: InputConnection): TypingContext? {
-        val before = connection.getTextBeforeCursor(TypingContext.LOOK_BACK, 0) ?: return null
-        val after = connection.getTextAfterCursor(1, 0)
-        if (!after.isNullOrEmpty() && TypingContext.isWordChar(after[0])) return null
-        return TypingContext.from(before.toString())
+    private fun show() {
+        suggestions = session.suggestions
+        hidden = session.hidden
     }
 
-    private fun endsAWord(text: String): Boolean = text.length == 1 && text[0] in ENDS_A_WORD
+    private fun switches(typing: TypingSettings) =
+        TypingSwitches(suggestions = typing.suggestions, autocorrect = typing.autocorrect, learn = typing.learn)
 
-    private companion object {
-        const val ENDS_A_WORD = " \n.,!?;:)\"]"
-        const val CLOSES_UP = ".,!?;:)"
+    private fun box(connection: InputConnection?): TextBox? = connection?.let { Box(it) }
+
+    /** The real text box, seen through the little window TypingSession looks through. */
+    private class Box(private val connection: InputConnection) : TextBox {
+        override fun before(count: Int): String? = connection.getTextBeforeCursor(count, 0)?.toString()
+
+        override fun after(count: Int): String? = connection.getTextAfterCursor(count, 0)?.toString()
+
+        override fun replaceBefore(count: Int, text: String) {
+            connection.beginBatchEdit()
+            if (count > 0) connection.deleteSurroundingText(count, 0)
+            if (text.isNotEmpty()) connection.commitText(text, 1)
+            connection.endBatchEdit()
+        }
     }
 }

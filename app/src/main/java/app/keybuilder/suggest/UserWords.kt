@@ -43,10 +43,10 @@ class UserWords {
 
     /** Notes that [word] was typed, after [previous] if there was a word before it. Lower case, please. */
     fun learn(word: String, previous: String? = null, shape: String? = null) {
-        if (word.isEmpty() || word.length > MAX_WORD_LENGTH) return
+        if (!canStore(word)) return
         counts[word] = (count(word) + 1).coerceAtMost(MAX_COUNT)
-        if (shape != null && shape != word && shape.lowercase() == word) shapes[word] = shape
-        if (!previous.isNullOrEmpty() && previous.length <= MAX_WORD_LENGTH) {
+        if (shape != null && shape != word && shape.lowercase() == word && canStore(shape)) shapes[word] = shape
+        if (previous != null && canStore(previous)) {
             val after = pairs.getOrPut(previous) { HashMap() }
             after[word] = ((after[word] ?: 0) + 1).coerceAtMost(MAX_COUNT)
         }
@@ -77,8 +77,7 @@ class UserWords {
 
     /** Notes that you typed [typed] and then picked [meant] to replace it. */
     fun learnFix(typed: String, meant: String) {
-        if (typed.isEmpty() || meant.isEmpty() || typed == meant) return
-        if (typed.length > MAX_WORD_LENGTH || meant.length > MAX_WORD_LENGTH) return
+        if (typed == meant || !canStore(typed) || !canStore(meant)) return
         val choices = fixes.getOrPut(typed) { HashMap() }
         choices[meant] = ((choices[meant] ?: 0) + 1).coerceAtMost(MAX_COUNT)
         changed = true
@@ -118,7 +117,7 @@ class UserWords {
 
     /** From now on [word] is left exactly as typed. */
     fun keep(word: String) {
-        if (word.isEmpty() || word.length > MAX_WORD_LENGTH) return
+        if (!canStore(word)) return
         if (kept.add(word)) changed = true
     }
 
@@ -230,6 +229,13 @@ class UserWords {
         const val MAX_NEXT_PER_WORD = 12
         const val MAX_FIXES = 1000
 
+        /**
+         * Whether [word] can go into the file: not empty, not too long, and with no space,
+         * tab or line break in it, because those are what the file uses to keep things apart.
+         */
+        fun canStore(word: String): Boolean =
+            word.isNotEmpty() && word.length <= MAX_WORD_LENGTH && word.none { it.isWhitespace() || it.isISOControl() }
+
         /** A replacement you pick this many times becomes automatic. */
         const val FIX_AFTER = 2
         private const val SLACK = 200
@@ -245,24 +251,24 @@ class UserWords {
                     "w" -> {
                         val word = parts.getOrNull(1).orEmpty()
                         val count = parts.getOrNull(2)?.toIntOrNull() ?: continue
-                        if (word.isEmpty() || word.length > MAX_WORD_LENGTH || count <= 0) continue
+                        if (!canStore(word) || count <= 0) continue
                         user.counts[word] = count.coerceAtMost(MAX_COUNT)
                         val shape = parts.getOrNull(3)
-                        if (shape != null && shape != word && shape.lowercase() == word) user.shapes[word] = shape
+                        if (shape != null && shape != word && shape.lowercase() == word && canStore(shape)) user.shapes[word] = shape
                     }
-                    "k" -> parts.getOrNull(1)?.takeIf { it.isNotEmpty() && it.length <= MAX_WORD_LENGTH }?.let { user.kept.add(it) }
+                    "k" -> parts.getOrNull(1)?.takeIf { canStore(it) }?.let { user.kept.add(it) }
                     "p" -> {
                         val previous = parts.getOrNull(1).orEmpty()
                         val next = parts.getOrNull(2).orEmpty()
                         val count = parts.getOrNull(3)?.toIntOrNull() ?: continue
-                        if (previous.isEmpty() || next.isEmpty() || count <= 0) continue
+                        if (!canStore(previous) || !canStore(next) || count <= 0) continue
                         user.pairs.getOrPut(previous) { HashMap() }[next] = count.coerceAtMost(MAX_COUNT)
                     }
                     "f" -> {
                         val typed = parts.getOrNull(1).orEmpty()
                         val meant = parts.getOrNull(2).orEmpty()
                         val count = parts.getOrNull(3)?.toIntOrNull() ?: continue
-                        if (typed.isEmpty() || meant.isEmpty() || count <= 0) continue
+                        if (!canStore(typed) || !canStore(meant) || count <= 0) continue
                         user.fixes.getOrPut(typed) { HashMap() }[meant] = count.coerceAtMost(MAX_COUNT)
                     }
                 }

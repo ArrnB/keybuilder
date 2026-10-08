@@ -6,6 +6,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.SystemClock
 import android.text.InputType
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -21,6 +22,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,17 +48,22 @@ import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.engine.KeyboardState
 import app.keybuilder.engine.PressResult
 import app.keybuilder.model.ClipEntry
+import app.keybuilder.model.EditAction
 import app.keybuilder.model.GifItem
 import app.keybuilder.model.KeyDef
+import app.keybuilder.model.KeyStroke
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 import app.keybuilder.model.PANELS
 import app.keybuilder.model.addRecentEmoji
 import app.keybuilder.model.blurInUse
+import app.keybuilder.model.scaledForHeight
+import app.keybuilder.model.soundFor
 import app.keybuilder.store.AppSettings
 import app.keybuilder.store.TypingSettings
 import app.keybuilder.suggest.Suggestion
 import app.keybuilder.ui.ClipboardPanel
+import app.keybuilder.ui.EditPanel
 import app.keybuilder.ui.EmojiPanel
 import app.keybuilder.ui.GifPanel
 import app.keybuilder.ui.GifSearchBar
@@ -66,6 +73,7 @@ import app.keybuilder.ui.MainActivity
 import app.keybuilder.ui.PanelSize
 import app.keybuilder.ui.SettingsPanel
 import app.keybuilder.ui.StripExtras
+import app.keybuilder.ui.SymbolsPanel
 import app.keybuilder.ui.backgroundBrush
 import app.keybuilder.ui.resolved
 import kotlin.math.roundToInt
@@ -106,8 +114,15 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private lateinit var gif: GifController
     private lateinit var sticker: GifController
 
-    /** Word suggestions, autocorrect and learning. */
+    /** Word suggestions, autocorrect, text shortcuts and learning. */
     private lateinit var suggest: SuggestController
+
+    private lateinit var sounds: KeySounds
+
+    private var recentSymbols by mutableStateOf<List<String>>(emptyList())
+
+    /** Whether "Select" is switched on in the text editing panel. */
+    private var selecting by mutableStateOf(false)
 
     /** The Compose view that draws the keyboard. Needed to measure it for onComputeInsets. */
     private var composeView: ComposeView? = null
@@ -159,6 +174,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         sticker = GifController(this, lifecycleScope, stickers = true)
         gif.tidyCache()
         suggest = SuggestController(this)
+        sounds = KeySounds(this)
         // The word list is read in the background; suggestions start once it is in.
         suggest.load { suggest.refresh(currentInputConnection) }
 
@@ -188,9 +204,12 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         appliedBlurPx = -1 // a new window: whatever blur was set is gone
         return ComposeView(this).also { composeView = it }.apply {
             setContent {
-                // resolved(): with the phone's own colours filled in, if the theme asks for them.
-                val def = keyboard?.resolved()
-                if (def != null) {
+                val loaded = keyboard
+                if (loaded != null) {
+                    // At the height chosen in Settings (letters and icons scale with it), and
+                    // with the phone's own colours filled in if the theme asks for them.
+                    val sized = remember(loaded, typing.keyboardHeight) { loaded.scaledForHeight(typing.keyboardHeight) }
+                    val def = sized.resolved()
                     // Tells the strip, wherever it is drawn, whether to show symbols or words.
                     CompositionLocalProvider(LocalStripIcons provides typing.stripIcons) {
                         KeyboardOrPanel(def)
@@ -289,7 +308,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             showToolbar = showToolbar,
             onOpenPanel = { showPanel(it) },
             onAlternate = { _, text -> handleAlternate(text) },
-            onKeyDown = { keyTouched() },
+            onKeyDown = { keyTouched(it) },
             showPopups = typing.popups,
             onCursor = { moveCursor(it) },
             strip = StripExtras(
@@ -329,6 +348,25 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
             "sticker" -> PicturePanel(def, sticker, size, resize, title = "Stickers by GIPHY", searchHint = "Search stickers")
 
+            "symbols" -> SymbolsPanel(
+                theme = def.theme,
+                size = size,
+                onResize = resize,
+                onClose = { showPanel(null) },
+                recent = recentSymbols,
+                onBackspace = { currentInputConnection?.let { deleteBackward(it) } },
+                onPick = { pickSymbol(it) },
+            )
+
+            "edit" -> EditPanel(
+                theme = def.theme,
+                size = size,
+                onResize = resize,
+                selecting = selecting,
+                onClose = { showPanel(null) },
+                onAction = { runEdit(it) },
+            )
+
             "emoji" -> EmojiPanel(
                 theme = def.theme,
                 size = size,
@@ -353,6 +391,10 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                     // Let a new vibration strength be felt straight away.
                     if (changed.vibrate && changed.vibrateStrength != typing.vibrateStrength) {
                         Haptics.buzz(this, changed.vibrateStrength)
+                    }
+                    // Switching sounds on plays one, so you know they work (or that the phone is on silent).
+                    if (changed.sounds && !typing.sounds) {
+                        sounds.play(def.theme.sound, changed.soundVolume, changed.soundsWhenSilent)
                     }
                     typing = changed
                     AppSettings.setTyping(this, changed)
@@ -391,6 +433,16 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             imageLoader = imageLoader,
             canLoadMore = source.canLoadMore,
             loadingMore = source.loadingMore,
+            shelf = source.shelf,
+            favourites = source.saved.favourites.map { it.id }.toSet(),
+            onShelf = {
+                source.typing = false
+                source.showShelf(it)
+            },
+            onFavourite = {
+                vibrateOnly()
+                source.toggleFavourite(it)
+            },
             onMore = { source.loadMore() },
             onClose = { showPanel(null) },
             onSearchBox = {
@@ -451,6 +503,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         typing = AppSettings.typing(this)
         recentEmoji = AppSettings.recentEmoji(this)
+        recentSymbols = AppSettings.recentSymbols(this)
+        if (typing.sounds) sounds.prepare(typing.soundsWhenSilent)
         val reloaded = reloadIfChanged()
         val def = keyboard
         if (def != null && (!restarting || reloaded)) {
@@ -466,7 +520,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         clipboard.importScreenshots() // does nothing unless that setting is on
         syncAutoCaps()
         // Decides what this text box allows. In a password box: nothing, and nothing is read from it.
-        suggest.startField(info, typing, currentInputConnection)
+        suggest.startField(info, typing, AppSettings.shortcuts(this), currentInputConnection)
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -498,6 +552,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     override fun onDestroy() {
         suggest.save()
+        sounds.release()
         clipboard.stop()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
@@ -598,9 +653,64 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         connection.performContextMenuAction(id)
     }
 
-    /** Called the moment a key is touched. */
-    private fun keyTouched() {
+    /**
+     * Called the moment something is touched: buzz, and play a sound. [key] is the key that
+     * was touched, which may have a sound of its own; null for buttons that are not keys.
+     */
+    private fun keyTouched(key: KeyDef? = null) {
+        vibrateOnly()
+        if (typing.sounds) {
+            val theme = keyboard?.theme ?: return
+            sounds.play(if (key != null) theme.soundFor(key) else theme.sound, typing.soundVolume, typing.soundsWhenSilent)
+        }
+    }
+
+    private fun vibrateOnly() {
         if (typing.vibrate) Haptics.buzz(this, typing.vibrateStrength)
+    }
+
+    /** A symbol or a face was picked in the symbols panel. */
+    private fun pickSymbol(symbol: String) {
+        currentInputConnection?.commitText(symbol, 1)
+        recentSymbols = addRecentEmoji(recentSymbols, symbol)
+        AppSettings.setRecentSymbols(this, recentSymbols)
+    }
+
+    /** A button of the text editing panel was pressed. */
+    private fun runEdit(action: EditAction) {
+        val connection = currentInputConnection ?: return
+        vibrateOnly()
+        val stroke = action.keyStroke(selecting)
+        val command = action.command()
+        if (stroke != null) sendStroke(connection, stroke) else if (command != null) runCommand(connection, command)
+        selecting = action.selectingAfter(selecting)
+    }
+
+    /**
+     * Sends a key press as if from a real keyboard, with Ctrl and Shift held as asked.
+     * That is how the edit panel jumps by word (Ctrl+arrow), selects (Shift+arrow) and undoes (Ctrl+Z).
+     */
+    private fun sendStroke(connection: InputConnection, stroke: KeyStroke) {
+        val code = when (stroke.key) {
+            "left" -> KeyEvent.KEYCODE_DPAD_LEFT
+            "right" -> KeyEvent.KEYCODE_DPAD_RIGHT
+            "up" -> KeyEvent.KEYCODE_DPAD_UP
+            "down" -> KeyEvent.KEYCODE_DPAD_DOWN
+            "home" -> KeyEvent.KEYCODE_MOVE_HOME
+            "end" -> KeyEvent.KEYCODE_MOVE_END
+            "delete" -> KeyEvent.KEYCODE_DEL
+            "forwardDelete" -> KeyEvent.KEYCODE_FORWARD_DEL
+            "z" -> KeyEvent.KEYCODE_Z
+            else -> return
+        }
+        var held = 0
+        if (stroke.ctrl) held = held or KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        if (stroke.shift) held = held or KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+        val now = SystemClock.uptimeMillis()
+        val flags = KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE
+        val device = KeyCharacterMap.VIRTUAL_KEYBOARD
+        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, held, device, 0, flags))
+        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, held, device, 0, flags))
     }
 
     /** Boxes for phone numbers, amounts, PINs and dates. */
@@ -687,6 +797,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         gif.typing = false
         sticker.typing = false
         state = state.copy(panel = panel)
+        selecting = false
         if (panel == null) {
             panelExtraDp = 0f // back to the keys: the next panel opens at normal height
             suggest.textChangedOtherwise(currentInputConnection)
@@ -746,6 +857,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         if (!fieldAccepts(GIF_TYPE)) {
             // Plenty of text boxes take text only. A link is the next best thing.
             currentInputConnection?.commitText(item.pageUrl + " ", 1)
+            source.noteSent(item)
             source.message = "This text box does not accept pictures, so a link was typed instead."
             return
         }
@@ -754,7 +866,10 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             val file = source.download(item)
             source.message = when {
                 file == null -> "Could not download it. Check the internet and try again."
-                sendPicture(file, GIF_TYPE, item.title) -> null
+                sendPicture(file, GIF_TYPE, item.title) -> {
+                    source.noteSent(item)
+                    null
+                }
                 else -> "The app did not take the picture."
             }
         }

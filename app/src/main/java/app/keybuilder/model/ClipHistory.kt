@@ -88,7 +88,7 @@ fun isScreenshot(folder: String?, fileName: String?): Boolean {
  * A copied text squeezed onto the small button on the strip: on one line, and cut short
  * with "…" if it is longer than [max] characters.
  */
-fun quickClipLabel(text: String, max: Int = 16): String {
+fun quickClipLabel(text: String, max: Int = 8): String {
     val oneLine = text.trim().split(Regex("\\s+")).joinToString(" ")
     return if (oneLine.length <= max) oneLine else oneLine.take(max - 1).trimEnd() + "…"
 }

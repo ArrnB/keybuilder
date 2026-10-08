@@ -200,6 +200,12 @@ object LayoutJson {
         background = obj.color("background", where),
         textColor = obj.color("textColor", where),
         fontSizeSp = obj.number("fontSizeSp", where)?.coerceIn(8f, 48f),
+        sound = obj.string("sound", where)?.also {
+            if (it !in KEY_SOUNDS) fail(where, "\"sound\" must be one of ${KEY_SOUNDS.joinToString()}, not \"$it\"")
+        },
+        animation = obj.string("animation", where)?.also {
+            if (it !in KEY_ANIMATIONS) fail(where, "\"animation\" must be one of ${KEY_ANIMATIONS.joinToString()}, not \"$it\"")
+        },
     )
 
     private fun parseTheme(obj: JsonObject): Theme {
@@ -220,7 +226,9 @@ object LayoutJson {
             keyGapDp = (obj.number("keyGapDp", where) ?: d.keyGapDp).coerceIn(0f, 16f),
             fontSizeSp = (obj.number("fontSizeSp", where) ?: d.fontSizeSp).coerceIn(8f, 48f),
             fontFamily = obj.string("fontFamily", where)?.also {
-                if (it !in FONT_FAMILIES) fail(where, "\"fontFamily\" must be one of ${FONT_FAMILIES.joinToString()}, not \"$it\"")
+                if (!isFontFamily(it)) {
+                    fail(where, "\"fontFamily\" must be one of ${FONT_FAMILIES.joinToString()}, or \"file:\" and a font file's name, not \"$it\"")
+                }
             } ?: d.fontFamily,
             bold = obj.boolean("bold", where) ?: d.bold,
             hints = obj.boolean("hints", where) ?: d.hints,
@@ -234,6 +242,12 @@ object LayoutJson {
             colorSource = obj.string("colors", where)?.also {
                 if (it !in COLOR_SOURCES) fail(where, "\"colors\" must be one of ${COLOR_SOURCES.joinToString()}, not \"$it\"")
             } ?: d.colorSource,
+            sound = obj.string("sound", where)?.also {
+                if (it !in KEY_SOUNDS) fail(where, "\"sound\" must be one of ${KEY_SOUNDS.joinToString()}, not \"$it\"")
+            } ?: d.sound,
+            animation = obj.string("animation", where)?.also {
+                if (it !in KEY_ANIMATIONS) fail(where, "\"animation\" must be one of ${KEY_ANIMATIONS.joinToString()}, not \"$it\"")
+            } ?: d.animation,
         )
     }
 
@@ -283,6 +297,8 @@ object LayoutJson {
                     style.background?.let { put("background", it) }
                     style.textColor?.let { put("textColor", it) }
                     style.fontSizeSp?.let { put("fontSizeSp", it) }
+                    style.sound?.let { put("sound", it) }
+                    style.animation?.let { put("animation", it) }
                 })
             }
             if (key.alternates.isNotEmpty()) {
@@ -343,6 +359,8 @@ object LayoutJson {
         put("keyOpacity", t.keyOpacity)
         put("backgroundBlur", t.backgroundBlur)
         put("colors", t.colorSource)
+        put("sound", t.sound)
+        put("animation", t.animation)
     }
 
     // ---------------------------------------------------------------- helpers
@@ -361,7 +379,8 @@ object LayoutJson {
 
     private fun JsonObject.number(name: String, where: String): Float? {
         val el = field(name) ?: return null
-        val value = (el as? JsonPrimitive)?.takeUnless { it.isString }?.floatOrNull
+        // NaN and numbers too big to hold are "numbers" to the reader but would break drawing and saving.
+        val value = (el as? JsonPrimitive)?.takeUnless { it.isString }?.floatOrNull?.takeIf { it.isFinite() }
         return value ?: fail(where, "\"$name\" must be a number")
     }
 

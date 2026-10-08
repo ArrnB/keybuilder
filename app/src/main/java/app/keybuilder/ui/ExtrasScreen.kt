@@ -25,6 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import app.keybuilder.model.KeyboardDef
+import app.keybuilder.model.MAX_HEIGHT_PERCENT
+import app.keybuilder.model.MIN_HEIGHT_PERCENT
+import app.keybuilder.model.Shortcut
+import app.keybuilder.model.Shortcuts
+import app.keybuilder.model.shortcutProblem
 import app.keybuilder.store.TypingSettings
 
 /** A setting that is either on or off: its name, then On and Off. */
@@ -62,6 +67,8 @@ fun ExtrasScreen(
     onTyping: (TypingSettings) -> Unit,
     learnedCount: Int,
     onForgetWords: () -> Unit,
+    shortcuts: Shortcuts,
+    onShortcuts: (Shortcuts) -> Unit,
     giphyKey: String,
     onGiphyKey: (String) -> Unit,
     onOpenGiphySite: () -> Unit,
@@ -70,6 +77,8 @@ fun ExtrasScreen(
     var editingKey by remember { mutableStateOf(false) }
     var confirmErase by remember { mutableStateOf(false) }
     var confirmForget by remember { mutableStateOf(false) }
+    var addingShortcut by remember { mutableStateOf(false) }
+    var editingShortcut by remember { mutableStateOf<Shortcut?>(null) }
 
     BackHandler(onBack = onBack)
     AutoSave(keyboard, onSave)
@@ -107,6 +116,52 @@ fun ExtrasScreen(
                         },
                     )
                 }
+                OnOffRow(
+                    label = "Key sounds",
+                    on = typing.sounds,
+                    onChange = { onTyping(typing.copy(sounds = it)) },
+                )
+                if (typing.sounds) {
+                    SliderRow(
+                        label = "Sound volume",
+                        valueText = "${typing.soundVolume}%",
+                        value = typing.soundVolume.toFloat(),
+                        min = 5f,
+                        max = 100f,
+                        onChange = { value ->
+                            val stepped = ((value / 5f).roundToInt() * 5).coerceIn(5, 100)
+                            if (stepped != typing.soundVolume) onTyping(typing.copy(soundVolume = stepped))
+                        },
+                    )
+                    OnOffRow(
+                        label = "Play them even when the phone is on silent",
+                        on = typing.soundsWhenSilent,
+                        onChange = { onTyping(typing.copy(soundsWhenSilent = it)) },
+                    )
+                    Text(
+                        "Which sound the keys make is part of each keyboard's style: Edit style > Sound and " +
+                            "movement. Normally key sounds follow the phone and stay quiet on silent or " +
+                            "vibrate. Played \"even when silent\" they follow the media volume instead.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                SliderRow(
+                    label = "Keyboard height",
+                    valueText = "${typing.keyboardHeight}%",
+                    value = typing.keyboardHeight.toFloat(),
+                    min = MIN_HEIGHT_PERCENT.toFloat(),
+                    max = MAX_HEIGHT_PERCENT.toFloat(),
+                    onChange = { value ->
+                        val stepped = ((value / 5f).roundToInt() * 5).coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT)
+                        if (stepped != typing.keyboardHeight) onTyping(typing.copy(keyboardHeight = stepped))
+                    },
+                )
+                Text(
+                    "Makes every keyboard taller or shorter. Letters and icons grow and shrink evenly " +
+                        "with the keys, so nothing is stretched. It applies to the real keyboard; the " +
+                        "previews inside this app stay at normal size.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 OnOffRow(
                     label = "Show the letter above a pressed key",
                     on = typing.popups,
@@ -160,6 +215,24 @@ fun ExtrasScreen(
                 )
                 OutlinedButton(onClick = { confirmForget = true }, enabled = learnedCount > 0) {
                     Text("Forget learned words ($learnedCount)")
+                }
+
+                SectionTitle("Text shortcuts")
+                Text(
+                    "A few characters that turn into a longer text: type \"omw\" and a space, and it " +
+                        "becomes \"on my way\". Good for your address, e-mail, or anything you type often. " +
+                        "They work everywhere except password boxes.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                for (item in shortcuts.items) {
+                    TextRow(
+                        label = item.short,
+                        value = item.text.replace('\n', ' ').let { if (it.length > 28) it.take(27) + "…" else it },
+                        onClick = { editingShortcut = item },
+                    )
+                }
+                OutlinedButton(onClick = { addingShortcut = true }, enabled = shortcuts.items.size < Shortcuts.MAX_SHORTCUTS) {
+                    Text("Add a shortcut")
                 }
 
                 SectionTitle("Last copied thing")
@@ -272,6 +345,38 @@ fun ExtrasScreen(
             onDone = { key ->
                 onGiphyKey(key.trim())
                 editingKey = false
+            },
+        )
+    }
+
+    if (addingShortcut) {
+        ShortcutDialog(
+            initialShort = "",
+            initialText = "",
+            problem = { short, text -> shortcutProblem(short, text, shortcuts) },
+            onDismiss = { addingShortcut = false },
+            onDone = { short, text ->
+                onShortcuts(shortcuts.with(short, text))
+                addingShortcut = false
+            },
+        )
+    }
+
+    val changing = editingShortcut
+    if (changing != null) {
+        ShortcutDialog(
+            initialShort = changing.short,
+            initialText = changing.text,
+            problem = { short, text -> shortcutProblem(short, text, shortcuts, replacing = changing.short) },
+            onDismiss = { editingShortcut = null },
+            onDone = { short, text ->
+                // Renaming a shortcut is removing the old one and adding the new one.
+                onShortcuts(shortcuts.without(changing.short).with(short, text))
+                editingShortcut = null
+            },
+            onDelete = {
+                onShortcuts(shortcuts.without(changing.short))
+                editingShortcut = null
             },
         )
     }

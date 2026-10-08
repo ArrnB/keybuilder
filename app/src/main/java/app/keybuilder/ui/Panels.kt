@@ -3,12 +3,18 @@ package app.keybuilder.ui
 import android.view.MotionEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,6 +41,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -46,6 +53,11 @@ import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.engine.ShiftState
 import app.keybuilder.model.ClipEntry
 import app.keybuilder.model.ClipHistory
+import app.keybuilder.model.EditAction
+import app.keybuilder.model.MAX_HEIGHT_PERCENT
+import app.keybuilder.model.MIN_HEIGHT_PERCENT
+import app.keybuilder.model.SymbolData
+import app.keybuilder.model.SymbolGroup
 import app.keybuilder.model.EmojiCategory
 import app.keybuilder.model.EmojiData
 import app.keybuilder.model.GifItem
@@ -58,6 +70,9 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import java.io.File
 import kotlin.math.abs
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /*
  * The panels that take the place of the keys: clipboard, GIF and emoji.
@@ -368,12 +383,20 @@ fun GifPanel(
     imageLoader: ImageLoader,
     canLoadMore: Boolean,
     loadingMore: Boolean,
+    /** "recent", "favourites", or null while GIPHY's own lists are showing. */
+    shelf: String?,
+    favourites: Set<String>,
     onClose: () -> Unit,
     onSearchBox: () -> Unit,
     onQuickSearch: (String) -> Unit,
+    onShelf: (String) -> Unit,
     onMore: () -> Unit,
     onPick: (GifItem) -> Unit,
+    onFavourite: (GifItem) -> Unit,
 ) {
+    // The grid's touch handling lives as long as each picture does, so it must always call the latest of these.
+    val pick by rememberUpdatedState(onPick)
+    val favourite by rememberUpdatedState(onFavourite)
     PanelFrame(theme = theme, size = size, onResize = onResize, title = title, onClose = onClose) { colors ->
         if (!hasKey) {
             PanelNote(
@@ -401,11 +424,13 @@ fun GifPanel(
                 modifier = Modifier.padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                item { PanelChip("Recent", colors, onClick = { onShelf("recent") }, selected = shelf == "recent") }
+                item { PanelChip("★ Favourites", colors, onClick = { onShelf("favourites") }, selected = shelf == "favourites") }
                 item {
-                    PanelChip("Trending", colors, onClick = { onQuickSearch("") }, selected = query.isEmpty())
+                    PanelChip("Trending", colors, onClick = { onQuickSearch("") }, selected = shelf == null && query.isEmpty())
                 }
                 items(Giphy.QUICK_SEARCHES) { word ->
-                    PanelChip(word, colors, onClick = { onQuickSearch(word) }, selected = query == word)
+                    PanelChip(word, colors, onClick = { onQuickSearch(word) }, selected = shelf == null && query == word)
                 }
             }
 
@@ -423,18 +448,34 @@ fun GifPanel(
                     contentPadding = PaddingValues(bottom = 8.dp),
                 ) {
                     items(gifs) { gif ->
-                        AsyncImage(
-                            model = gif.previewUrl,
-                            contentDescription = gif.title,
-                            imageLoader = imageLoader,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(84.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.chip)
-                                .clickable { onPick(gif) },
-                        )
+                        Box {
+                            AsyncImage(
+                                model = gif.previewUrl,
+                                contentDescription = gif.title,
+                                imageLoader = imageLoader,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(84.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(colors.chip)
+                                    // Tap to send; hold to add to (or take out of) the favourites.
+                                    .pointerInput(gif.id) {
+                                        detectTapGestures(onTap = { pick(gif) }, onLongPress = { favourite(gif) })
+                                    },
+                            )
+                            if (gif.id in favourites) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(3.dp)
+                                        .background(Color(0x99000000), RoundedCornerShape(50))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                                ) {
+                                    BasicText("★", style = TextStyle(color = Color(0xFFFFD54F), fontSize = 12.sp))
+                                }
+                            }
+                        }
                     }
                     if (canLoadMore) {
                         // One cell across the whole width at the end of the list.
@@ -587,6 +628,26 @@ fun SettingsPanel(
             }
             item { PanelToggle(colors, "Clipboard history", clipboardOn, onClipboardOn) }
             item {
+                PanelToggle(colors, "Key sounds (choose the sound in Edit style)", settings.sounds) {
+                    onSettings(settings.copy(sounds = it))
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    PanelText("Keyboard height: ${settings.keyboardHeight}%", colors.text, 14f, Modifier.weight(1f))
+                    PanelChip("Shorter", colors, onClick = {
+                        onSettings(settings.copy(keyboardHeight = (settings.keyboardHeight - 5).coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT)))
+                    })
+                    PanelChip("Taller", colors, onClick = {
+                        onSettings(settings.copy(keyboardHeight = (settings.keyboardHeight + 5).coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT)))
+                    })
+                }
+            }
+            item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PanelChip("Open the KeyBuilder app", colors, onClick = onOpenApp, strong = true)
                     PanelChip("Other keyboards", colors, onClick = onOtherKeyboards, strong = true)
@@ -662,3 +723,175 @@ fun EmojiPanel(
         }
     }
 }
+
+// ------------------------------------------------------------------ symbols
+
+/**
+ * Symbols and faces, by group, with the ones used recently first. Works like the emoji
+ * panel: tap to type, and the panel stays open for the next one.
+ */
+@Composable
+fun SymbolsPanel(
+    theme: Theme,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
+    recent: List<String>,
+    onClose: () -> Unit,
+    onBackspace: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    // The recent list as it was when the panel opened, so it does not reshuffle under your finger.
+    val shownRecent = remember { recent }
+    val groups = remember { listOf(SymbolGroup("Recent", shownRecent)) + SymbolData.panelGroups }
+    var group by remember { mutableStateOf(if (shownRecent.isEmpty()) 1 else 0) }
+
+    PanelFrame(
+        theme = theme, size = size, onResize = onResize, title = "Symbols", onClose = onClose, onBackspace = onBackspace,
+    ) { colors ->
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            groups.forEachIndexed { index, entry ->
+                item {
+                    PanelChip(entry.name, colors, onClick = { group = index }, selected = index == group)
+                }
+            }
+        }
+        val symbols = groups[group].symbols
+        if (symbols.isEmpty()) {
+            PanelNote(colors, "The symbols you use show up here.")
+        } else key(group) { // key(...) starts each group scrolled to its top
+            // Faces are long, so they get wide cells; single characters get small square ones.
+            val wide = symbols.any { it.length > 3 }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(if (wide) 132.dp else 44.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp),
+                contentPadding = PaddingValues(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                items(symbols) { symbol ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.chip)
+                            .clickable { onPick(symbol) }
+                            .padding(horizontal = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PanelText(symbol, colors.text, if (symbol.length > 3) 14f else 21f)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ text editing
+
+/**
+ * Big buttons for moving around in text and changing it: arrows, jumps by word and to the
+ * ends of the line, select, copy, cut, paste, undo, redo and delete. What each button asks
+ * of the text box is decided in model/EditActions.kt; [selecting] says whether "Select" is on,
+ * in which case the arrows stretch the selection instead of moving the cursor.
+ */
+@Composable
+fun EditPanel(
+    theme: Theme,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
+    selecting: Boolean,
+    onClose: () -> Unit,
+    onAction: (EditAction) -> Unit,
+) {
+    PanelFrame(theme = theme, size = size, onResize = onResize, title = "Edit text", onClose = onClose) { colors ->
+        val rows = listOf(
+            listOf(EditAction.SELECT, EditAction.SELECT_ALL, EditAction.COPY, EditAction.CUT, EditAction.PASTE),
+            listOf(EditAction.WORD_LEFT, EditAction.UP, EditAction.WORD_RIGHT),
+            listOf(EditAction.LEFT, EditAction.DOWN, EditAction.RIGHT),
+            listOf(EditAction.LINE_START, EditAction.UNDO, EditAction.REDO, EditAction.LINE_END),
+            listOf(EditAction.DELETE, EditAction.DELETE_FORWARD),
+        )
+        Column(
+            modifier = Modifier.fillMaxWidth().weight(1f).padding(bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            for (row in rows) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (action in row) {
+                        EditButton(
+                            colors = colors,
+                            action = action,
+                            lit = action == EditAction.SELECT && selecting,
+                            onPress = { onAction(action) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One button of the edit panel. It acts the moment it is touched, and arrows and delete keep going while held. */
+@Composable
+private fun RowScope.EditButton(colors: PanelColors, action: EditAction, lit: Boolean, onPress: () -> Unit) {
+    val press by rememberUpdatedState(onPress)
+    var down by remember { mutableStateOf(false) }
+    val background = when {
+        lit -> colors.accent
+        down -> colors.chipStrong
+        else -> colors.chip
+    }
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(10.dp))
+            .background(background)
+            .pointerInput(action) {
+                coroutineScope {
+                    val scope = this
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false).consume()
+                        down = true
+                        press()
+                        val repeating = if (action.repeats) {
+                            scope.launch {
+                                delay(EDIT_REPEAT_START_MS)
+                                while (true) {
+                                    press()
+                                    delay(EDIT_REPEAT_EVERY_MS)
+                                }
+                            }
+                        } else {
+                            null
+                        }
+                        waitForUpOrCancellation()
+                        repeating?.cancel()
+                        down = false
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        val tint = if (lit) colors.accentText else colors.text
+        val arrow = when (action) {
+            EditAction.LEFT -> "left"
+            EditAction.RIGHT -> "right"
+            EditAction.UP -> "up"
+            EditAction.DOWN -> "down"
+            else -> null
+        }
+        if (arrow != null) {
+            KeyIcon(KeyAction.Arrow(arrow), ShiftState.OFF, tint, sizeDp = 24f)
+        } else {
+            PanelText(action.label, tint, 13f, maxLines = 2)
+        }
+    }
+}
+
+private const val EDIT_REPEAT_START_MS = 400L
+private const val EDIT_REPEAT_EVERY_MS = 70L

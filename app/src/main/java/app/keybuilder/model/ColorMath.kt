@@ -8,6 +8,12 @@ import kotlin.math.roundToInt
  * A colour is an ARGB number: opacity, red, green, blue, each 0..255.
  */
 
+/**
+ * [fallback] if this is "not a number", which arithmetic can produce (0 divided by 0) and
+ * which would otherwise make rounding fail. Everything that rounds a size goes through this.
+ */
+fun Float.orIfNaN(fallback: Float): Float = if (isNaN()) fallback else this
+
 /** Hue 0..360 (position on the colour wheel), saturation 0..1 (grey to vivid), value 0..1 (dark to bright). */
 data class Hsv(val h: Float, val s: Float, val v: Float)
 
@@ -31,9 +37,9 @@ fun argbToHsv(argb: Int): Hsv {
 
 /** [alpha] is 0..1, where 0 is fully see-through. */
 fun hsvToArgb(h: Float, s: Float, v: Float, alpha: Float = 1f): Int {
-    val hue = h.mod(360f)
-    val sat = s.coerceIn(0f, 1f)
-    val value = v.coerceIn(0f, 1f)
+    val hue = (if (h.isFinite()) h else 0f).mod(360f)
+    val sat = s.orIfNaN(0f).coerceIn(0f, 1f)
+    val value = v.orIfNaN(0f).coerceIn(0f, 1f)
     val c = value * sat
     val x = c * (1f - abs((hue / 60f).mod(2f) - 1f))
     val m = value - c
@@ -46,7 +52,7 @@ fun hsvToArgb(h: Float, s: Float, v: Float, alpha: Float = 1f): Int {
         else -> Triple(c, 0f, x)
     }
     fun channel(f: Float) = ((f + m) * 255f).roundToInt().coerceIn(0, 255)
-    val a = (alpha.coerceIn(0f, 1f) * 255f).roundToInt()
+    val a = (alpha.orIfNaN(1f).coerceIn(0f, 1f) * 255f).roundToInt()
     return (a shl 24) or (channel(r) shl 16) or (channel(g) shl 8) or channel(b)
 }
 
@@ -61,7 +67,7 @@ fun colorAlpha(argb: Int): Float = ((argb ushr 24) and 0xFF) / 255f
 
 /** The same colour, [opacity] (0..1) times as solid as it was. A colour that was already see-through gets more so. */
 fun withOpacity(argb: Int, opacity: Float): Int {
-    val alpha = (((argb ushr 24) and 0xFF) * opacity.coerceIn(0f, 1f)).roundToInt().coerceIn(0, 255)
+    val alpha = (((argb ushr 24) and 0xFF) * opacity.orIfNaN(1f).coerceIn(0f, 1f)).roundToInt().coerceIn(0, 255)
     return (alpha shl 24) or (argb and 0xFFFFFF)
 }
 

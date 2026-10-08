@@ -111,7 +111,7 @@ enum class ThemeSize(val label: String, val min: Float, val max: Float, val step
     }
 
     /** Rounds to the nearest step and keeps the value inside the range. */
-    fun snap(value: Float): Float = ((value / step).roundToInt() * step).coerceIn(min, max)
+    fun snap(value: Float): Float = ((value.orIfNaN(min) / step).roundToInt() * step).coerceIn(min, max)
 
     fun set(theme: Theme, value: Float): Theme {
         val v = snap(value)
@@ -138,7 +138,7 @@ enum class ThemeSize(val label: String, val min: Float, val max: Float, val step
 // ------------------------------------------------------------------ background
 
 /** Opacity is shown and set as a percentage in steps of 5. */
-fun opacityPercent(opacity: Float): Int = ((opacity.coerceIn(0f, 1f) * 20f).roundToInt() * 5)
+fun opacityPercent(opacity: Float): Int = ((opacity.orIfNaN(1f).coerceIn(0f, 1f) * 20f).roundToInt() * 5)
 
 fun Theme.withBackgroundOpacity(percent: Float): Theme = copy(backgroundOpacity = opacityPercent(percent / 100f) / 100f)
 
@@ -149,7 +149,7 @@ fun Theme.withKeyOpacity(percent: Float): Theme = copy(keyOpacity = opacityPerce
  * it on while the background is solid also makes the background see-through.
  */
 fun Theme.withBackgroundBlur(value: Float): Theme {
-    val blur = value.roundToInt().toFloat().coerceIn(0f, MAX_BLUR)
+    val blur = value.orIfNaN(0f).roundToInt().toFloat().coerceIn(0f, MAX_BLUR)
     return copy(backgroundBlur = blur, backgroundOpacity = if (blur > 0f && backgroundOpacity >= 1f) 0.6f else backgroundOpacity)
 }
 
@@ -177,9 +177,43 @@ fun gradientDirectionName(direction: String): String = when (direction) {
     else -> "Top to bottom"
 }
 
+// ------------------------------------------------------------------ keyboard height
+
+const val MIN_HEIGHT_PERCENT = 70
+const val MAX_HEIGHT_PERCENT = 150
+
+/**
+ * How much letters and icons grow or shrink when the keyboard is made [percent] as tall.
+ * They follow the height, but only so far: keys do not get wider, so past a point bigger
+ * letters would no longer fit.
+ */
+fun glyphScale(percent: Int): Float = (percent.coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT) / 100f).coerceIn(0.8f, 1.3f)
+
+/**
+ * This keyboard at [percent] of its normal height, for drawing (never saved). Rows get
+ * taller or shorter, and letters and icons are scaled with them. Icons are drawn in a
+ * square whose side follows the letter size, so they grow evenly and are never stretched.
+ */
+fun KeyboardDef.scaledForHeight(percent: Int): KeyboardDef {
+    val p = percent.coerceIn(MIN_HEIGHT_PERCENT, MAX_HEIGHT_PERCENT)
+    if (p == 100) return this
+    val glyphs = glyphScale(p)
+    return copy(
+        theme = theme.copy(keyHeightDp = theme.keyHeightDp * p / 100f, fontSizeSp = theme.fontSizeSp * glyphs),
+        layers = layers.map { layer ->
+            layer.copy(rows = layer.rows.map { row ->
+                row.copy(keys = row.keys.map { key ->
+                    val own = key.style?.fontSizeSp
+                    if (own == null) key else key.copy(style = key.style.copy(fontSizeSp = own * glyphs))
+                })
+            })
+        },
+    )
+}
+
 /** 8.0 becomes "8", 1.5 stays "1.5". */
 fun formatNumber(value: Float): String =
-    if (value == value.roundToInt().toFloat()) value.roundToInt().toString() else value.toString()
+    if (value.isNaN()) "0" else if (value == value.roundToInt().toFloat()) value.roundToInt().toString() else value.toString()
 
 // ------------------------------------------------------------------ ready-made looks
 

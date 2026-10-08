@@ -530,12 +530,20 @@ class SuggestTest {
     }
 
     @Test
-    fun emailsLinksAndNoSuggestionBoxesGetNothingEither() {
+    fun emailsLinksAndNoSuggestionBoxesOnlyGetYourOwnShortcuts() {
         val text = FieldRules.CLASS_TEXT
-        assertEquals(FieldRules.NOTHING, FieldRules.forField(text or FieldRules.VARIATION_EMAIL, 0))
-        assertEquals(FieldRules.NOTHING, FieldRules.forField(text or FieldRules.VARIATION_WEB_EMAIL, 0))
-        assertEquals(FieldRules.NOTHING, FieldRules.forField(text or FieldRules.VARIATION_URI, 0))
-        assertEquals(FieldRules.NOTHING, FieldRules.forField(text or FieldRules.FLAG_NO_SUGGESTIONS, 0))
+        for (type in listOf(
+            text or FieldRules.VARIATION_EMAIL, text or FieldRules.VARIATION_WEB_EMAIL,
+            text or FieldRules.VARIATION_URI, text or FieldRules.FLAG_NO_SUGGESTIONS,
+        )) {
+            val rules = FieldRules.forField(type, 0)
+            assertEquals(FieldRules.SHORTCUTS_ONLY, rules)
+            assertFalse(rules.suggest || rules.correct || rules.learn)
+            assertFalse(rules.nothing)
+        }
+        // A password box that also asks for no suggestions is still a password box.
+        assertTrue(FieldRules.forField(text or 0x80 or FieldRules.FLAG_NO_SUGGESTIONS, 0).nothing)
+        assertTrue(FieldRules.NOTHING.nothing)
     }
 
     @Test
@@ -544,9 +552,9 @@ class SuggestTest {
         assertEquals(FieldRules.EVERYTHING, FieldRules.forField(text, 0))
         assertEquals(FieldRules.EVERYTHING, FieldRules.forField(text or 0x40, 0))   // a chat message box
         val incognito = FieldRules.forField(text, FieldRules.OPTION_NO_PERSONALIZED_LEARNING)
-        assertEquals(FieldRules(suggest = true, correct = true, learn = false), incognito)
+        assertEquals(FieldRules(suggest = true, correct = true, learn = false, shortcuts = true), incognito)
         // Name boxes: suggestions yes, "fixing" names no.
         val name = FieldRules.forField(text or FieldRules.VARIATION_PERSON_NAME, 0)
-        assertEquals(FieldRules(suggest = true, correct = false, learn = true), name)
+        assertEquals(FieldRules(suggest = true, correct = false, learn = true, shortcuts = true), name)
     }
 }

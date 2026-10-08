@@ -21,4 +21,21 @@ object SymbolData {
         SymbolGroup("Accents", "à á â ä æ ã å ç è é ê ë ì í î ï ñ ò ó ô ö õ ø œ ß ù ú û ü ÿ".split(" ")),
         SymbolGroup("Marks", "© ® ™ ✓ ✗ ★ ☆ ♥ ♦ ♣ ♠ ♪ ♫ ● ○ ■ □ ▲ ▼ ◆ ◇".split(" ")),
     )
+
+    /** Faces made of ordinary characters. Each is typed whole. */
+    val faces: SymbolGroup = SymbolGroup(
+        "Faces",
+        listOf(
+            "¯\\_(ツ)_/¯", "(╯°□°)╯︵ ┻━┻", "┬─┬ノ( º _ ºノ)", "( ͡° ͜ʖ ͡°)", "ಠ_ಠ", "(ง'̀-'́)ง", "(づ｡◕‿‿◕｡)づ", "ʕ•ᴥ•ʔ",
+            "(•_•)", "( •_•)>⌐■-■", "(⌐■_■)", "(¬‿¬)", "(ಥ﹏ಥ)", "(｡♥‿♥｡)", "\\(^o^)/", "(^_^)", "(>_<)", "(-_-)",
+            "(o_O)", "(T_T)", "(^_^;)", "(*^▽^*)", "(◕‿◕)", "(ʘ‿ʘ)", "ヽ(´▽`)/", "(☞ﾟヮﾟ)☞", "☜(ﾟヮﾟ☜)", "(ノ◕ヮ◕)ノ*:･ﾟ✧",
+            "♪┏(・o･)┛♪", "(´･ω･`)", "(=^･ω･^=)", "(；一_一)", "<3", ":)", ":(", ":D", ";)", ":P", ":/", ":'(", "XD", "^_^",
+        ),
+    )
+
+    /**
+     * What the symbols panel on the keyboard shows. Plain letters are left out (the keys
+     * are right there), and the faces are added.
+     */
+    val panelGroups: List<SymbolGroup> = groups.filter { it.name != "Letters" } + faces
 }

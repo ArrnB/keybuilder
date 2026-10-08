@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.keybuilder.model.GifItem
 import app.keybuilder.model.Giphy
+import app.keybuilder.model.SavedGifs
 import app.keybuilder.net.httpDownload
 import app.keybuilder.net.httpGetText
 import app.keybuilder.store.AppSettings
@@ -54,17 +55,62 @@ class GifController(
     var loadingMore by mutableStateOf(false)
         private set
 
+    /** The ones you sent recently and the ones you marked as favourites. Kept on the phone. */
+    var saved by mutableStateOf(SavedGifs())
+        private set
+
+    /** "recent" or "favourites" while one of those lists is showing, null while GIPHY's own are. */
+    var shelf by mutableStateOf<String?>(null)
+        private set
+
     private var loadedFor: String? = null
     private var job: Job? = null
 
     /** Called when the panel opens. Loads something if there is nothing to show yet. */
     fun open() {
         typing = false
+        saved = AppSettings.savedGifs(context, stickers)
         hasKey = AppSettings.giphyKey(context).isNotEmpty()
-        if (hasKey && (gifs.isEmpty() || loadedFor != query)) search(query)
+        val showing = shelf
+        if (showing != null) {
+            showShelf(showing)
+        } else if (hasKey && (gifs.isEmpty() || loadedFor != query)) {
+            search(query)
+        }
+    }
+
+    /** Shows the recent ones or the favourites. Nothing is asked of GIPHY for this. */
+    fun showShelf(which: String) {
+        job?.cancel()
+        loading = false
+        loadingMore = false
+        canLoadMore = false
+        shelf = which
+        loadedFor = null
+        val list = if (which == "recent") saved.recent else saved.favourites
+        gifs = list
+        message = when {
+            list.isNotEmpty() -> null
+            which == "recent" -> "The ones you send show up here."
+            else -> "Hold any picture to keep it here. Hold it again to take it out."
+        }
+    }
+
+    /** Notes that [gif] was sent, so it shows up under Recent. */
+    fun noteSent(gif: GifItem) {
+        saved = saved.withRecent(gif)
+        AppSettings.setSavedGifs(context, stickers, saved)
+    }
+
+    /** Adds [gif] to the favourites, or takes it out again. */
+    fun toggleFavourite(gif: GifItem) {
+        saved = saved.toggleFavourite(gif)
+        AppSettings.setSavedGifs(context, stickers, saved)
+        if (shelf == "favourites") showShelf("favourites")
     }
 
     fun search(words: String) {
+        shelf = null
         query = words.trim()
         val key = AppSettings.giphyKey(context)
         hasKey = key.isNotEmpty()

@@ -294,3 +294,64 @@ fun AutoSave(keyboard: KeyboardDef, onSave: (KeyboardDef) -> Unit) {
         }
     }
 }
+
+/**
+ * The pop-up for adding or changing a text shortcut: what you type, and what it becomes.
+ * [problem] explains why the two cannot be saved, or returns null when they can.
+ * [onDelete] is given when an existing shortcut is being changed, and adds a Delete button.
+ */
+@Composable
+fun ShortcutDialog(
+    initialShort: String,
+    initialText: String,
+    problem: (String, String) -> String?,
+    onDismiss: () -> Unit,
+    onDone: (String, String) -> Unit,
+    onDelete: (() -> Unit)? = null,
+) {
+    var short by remember { mutableStateOf(initialShort) }
+    var text by remember { mutableStateOf(initialText) }
+    val issue = problem(short, text)
+    // Do not scold empty boxes before anything has been typed.
+    val shownIssue = if (short.isEmpty() || text.isEmpty()) null else issue
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (onDelete == null) "New shortcut" else "Change shortcut") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = short,
+                    onValueChange = { short = it },
+                    label = { Text("Shortcut") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Turns into") },
+                    minLines = 2,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = shownIssue ?: "Type the shortcut, then a space, comma, full stop or enter, and it turns " +
+                        "into the text. Capitals do not matter. Backspace straight after puts the shortcut back.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (shownIssue != null) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onDone(short.trim(), text) }, enabled = issue == null) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}

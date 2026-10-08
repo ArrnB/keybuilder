@@ -112,7 +112,7 @@ fun KeyboardDef.moveKeyToRow(pos: KeyPos, rowDelta: Int): Edit {
 
 /** Rounds a width to quarter steps inside the allowed range. */
 fun snapKeyWidth(width: Float): Float =
-    ((width * 4).roundToInt() / 4f).coerceIn(KEY_WIDTH_MIN, KEY_WIDTH_MAX)
+    ((width.orIfNaN(1f) * 4).roundToInt() / 4f).coerceIn(KEY_WIDTH_MIN, KEY_WIDTH_MAX)
 
 fun KeyboardDef.withKeyWidth(pos: KeyPos, width: Float): KeyboardDef =
     withKey(pos) { it.copy(width = snapKeyWidth(width)) }
@@ -389,7 +389,7 @@ fun KeyboardDef.moveRow(pos: KeyPos, delta: Int): Edit {
 }
 
 fun snapRowHeight(height: Float): Float =
-    ((height * 10).roundToInt() / 10f).coerceIn(ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
+    ((height.orIfNaN(1f) * 10).roundToInt() / 10f).coerceIn(ROW_HEIGHT_MIN, ROW_HEIGHT_MAX)
 
 fun KeyboardDef.withRowHeight(layerId: String, row: Int, height: Float): KeyboardDef =
     withRows(layerId) { rows ->
