@@ -1,8 +1,11 @@
 package app.keybuilder.engine
 
+import app.keybuilder.model.BuiltInChoices
 import app.keybuilder.model.KeyAction
 import app.keybuilder.model.KeyDef
+import app.keybuilder.model.KeyLook
 import app.keybuilder.model.KeyboardDef
+import app.keybuilder.model.MAX_ALTERNATES
 import app.keybuilder.model.Layer
 import app.keybuilder.model.PANELS
 import app.keybuilder.model.TOOLBAR_HEIGHT_DP
@@ -36,6 +39,9 @@ sealed interface Effect {
     /** "copy", "paste", "cut" or "selectAll". */
     data class Command(val command: String) : Effect
 }
+
+/** What a key offers when held down, and which of those is shown small in its corner (or null). */
+data class KeyChoices(val all: List<String> = emptyList(), val hint: String? = null)
 
 data class PressResult(
     val state: KeyboardState,
@@ -126,6 +132,61 @@ object KeyboardEngine {
         if (key.alternates.isEmpty()) return emptyList()
         val capitals = key.action == KeyAction.TypeLabel && effectiveShift(def, state) != ShiftState.OFF
         return if (capitals) key.alternates.map { it.uppercase() } else key.alternates
+    }
+
+    /**
+     * Everything a key offers when held down. Choices you set yourself win. Otherwise, if the
+     * keyboard allows built-in choices, a typing key gets a digit (on a top row of letters)
+     * followed by accents or related marks. Only your own first choice or the digit is shown
+     * as the corner hint; accents on every vowel would just be clutter.
+     */
+    fun choicesFor(def: KeyboardDef, state: KeyboardState, key: KeyDef, rowIndex: Int, keyIndex: Int): KeyChoices {
+        val capitals = key.action == KeyAction.TypeLabel && effectiveShift(def, state) != ShiftState.OFF
+        fun shown(text: String) = if (capitals) text.uppercase() else text
+
+        if (key.alternates.isNotEmpty()) {
+            val all = key.alternates.map { shown(it) }
+            return KeyChoices(all, all.first())
+        }
+        if (!def.builtInChoices || key.action != KeyAction.TypeLabel || key.look == KeyLook.SPACER) return KeyChoices()
+
+        val digit = if (rowIndex == 0) topRowDigit(currentLayer(def, state), keyIndex) else null
+        val all = (listOfNotNull(digit) + BuiltInChoices.forLabel(key.label)).map { shown(it) }.distinct()
+        return KeyChoices(all.take(MAX_ALTERNATES), digit)
+    }
+
+    /** 1 2 3 ... 0 for the first ten single-letter keys of a layer's top row; null for any other key. */
+    private fun topRowDigit(layer: Layer, keyIndex: Int): String? {
+        val row = layer.rows.firstOrNull() ?: return null
+        var seen = 0
+        for ((index, key) in row.keys.withIndex()) {
+            val letter = key.action == KeyAction.TypeLabel && key.look != KeyLook.SPACER &&
+                key.label.length == 1 && key.label[0].isLetter()
+            if (!letter) continue
+            if (index == keyIndex) return if (seen < 10) "1234567890"[seen].toString() else null
+            seen++
+        }
+        return null
+    }
+
+    /**
+     * Holding the space bar and sliding moves the cursor. Given how far the finger has
+     * moved since the last step and how long one step is, this says how many steps to take
+     * now (negative means the other way). Partial steps wait until the finger has moved further.
+     */
+    fun cursorSteps(distance: Float, stepLength: Float): Int =
+        if (stepLength <= 0f) 0 else (distance / stepLength).toInt()
+
+    /**
+     * Dragging a panel's handle. [startExtra] is how much taller than normal the panel was
+     * when the drag began, [pulledUp] how far the finger has moved up since (down is negative).
+     * The result moves in small steps, so the screen is not rearranged for every pixel.
+     */
+    fun resizePanel(startExtra: Float, pulledUp: Float, maxExtra: Float, step: Float = 8f): Float {
+        val wanted = (startExtra + pulledUp).coerceIn(0f, maxExtra.coerceAtLeast(0f))
+        if (step <= 0f) return wanted
+        val stepped = Math.round(wanted / step) * step
+        return stepped.coerceIn(0f, maxExtra.coerceAtLeast(0f))
     }
 
     /** Types a long-press choice. Like any typed character it uses up a single shift. */

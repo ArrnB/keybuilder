@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -33,14 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -71,14 +72,32 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /** How long a key is held before it starts repeating, and how fast it repeats. */
 private const val REPEAT_START_MS = 400L
 private const val REPEAT_EVERY_MS = 50L
 
-/** How long a key is held before its long-press choices appear. */
-private const val LONG_PRESS_MS = 320L
+/** How long a key is held before its long-press choices appear (or the space bar starts steering). */
+private const val LONG_PRESS_MS = 300L
+
+/** Space-bar steering: how far the finger slides for one step sideways, and for one line up or down. */
+private const val CURSOR_STEP_DP = 14f
+private const val CURSOR_LINE_DP = 30f
+
+/** How far outside a key the finger may wander before the press is cancelled. */
+private const val TOUCH_SLACK_DP = 14f
+
+private const val SETTINGS_PANEL = "settings"
+
+/**
+ * Whether the strip's buttons show small symbols instead of words. It is a general setting,
+ * so rather than passing it through every screen, whoever shows a keyboard provides it once.
+ */
+val LocalStripIcons = compositionLocalOf { false }
 
 /** Size of the pop-up above a key: the width of one choice and the height, in dp. */
 private const val POPUP_CELL_DP = 44f
@@ -99,9 +118,6 @@ private data class KeyPopup(
 /** Remembers something without causing a redraw when it changes. */
 private class Holder<T>(var value: T? = null)
 
-/** The result of waiting for a finger to lift: the lift itself, or null inside if the press was cancelled. */
-private class Lift(val change: PointerInputChange?)
-
 /**
  * Draws a keyboard from its description. This one function is used both by the real
  * keyboard (KeyBuilderIme) and by previews inside the app, so they can never look different.
@@ -111,9 +127,10 @@ private class Lift(val change: PointerInputChange?)
  * The editor uses two extras: give [onKeyAt] and taps report WHERE the key is instead of
  * typing (used to pick a key to edit), and [selected] draws a ring around one key.
  *
- * The real keyboard uses three more: [onAlternate] is told which long-press choice was
- * picked, [onKeyDown] is called the moment any key is touched (for vibration), and
- * [showPopups] turns on the enlarged letter shown above a key while it is pressed.
+ * The real keyboard uses four more: [onAlternate] is told which long-press choice was
+ * picked, [onKeyDown] is called the moment any key is touched (for vibration),
+ * [showPopups] turns on the enlarged letter shown above a key while it is pressed, and
+ * [onCursor] is told "left", "right", "up" or "down" while the held space bar is slid.
  */
 @Composable
 fun KeyboardView(
@@ -128,6 +145,7 @@ fun KeyboardView(
     onAlternate: (KeyDef, String) -> Unit = { _, _ -> },
     onKeyDown: () -> Unit = {},
     showPopups: Boolean = false,
+    onCursor: (String) -> Unit = {},
 ) {
     val theme = def.theme
     val palette = remember(theme) { Palette(theme) }
@@ -160,7 +178,7 @@ fun KeyboardView(
                     ) {
                         row.keys.forEachIndexed { keyIndex, keyDef ->
                             val pos = KeyPos(layer.id, rowIndex, keyIndex)
-                            val choices = KeyboardEngine.alternatesFor(def, state, keyDef)
+                            val choices = KeyboardEngine.choicesFor(def, state, keyDef, rowIndex, keyIndex)
                             val holds = keyDef.action == KeyAction.Backspace || keyDef.action is KeyAction.Arrow
                             KeyCell(
                                 pos = pos,
@@ -172,8 +190,9 @@ fun KeyboardView(
                                 editing = editing,
                                 // While picking keys in the editor nothing repeats and nothing pops up.
                                 repeats = !editing && holds,
-                                alternates = if (editing) emptyList() else choices,
-                                hint = if (theme.hints) choices.firstOrNull() else null,
+                                slides = !editing && keyDef.action == KeyAction.Space,
+                                alternates = if (editing) emptyList() else choices.all,
+                                hint = if (theme.hints) choices.hint else null,
                                 previews = showPopups && !editing,
                                 container = container,
                                 onDown = onKeyDown,
@@ -181,6 +200,7 @@ fun KeyboardView(
                                 onPopupDone = { if (popup?.owner == pos) popup = null },
                                 onTap = { if (onKeyAt != null) onKeyAt(pos) else onKey(keyDef) },
                                 onAlternate = { onAlternate(keyDef, it) },
+                                onCursor = onCursor,
                             )
                         }
                     }
@@ -195,9 +215,13 @@ fun KeyboardView(
     }
 }
 
-/** The strip above the keys with one button per panel (clipboard, GIF, emoji). */
+/**
+ * The strip above the keys: one button per panel (clipboard, GIF, emoji) on the left and
+ * the settings gear at the right end. The buttons show words or small symbols, see LocalStripIcons.
+ */
 @Composable
 private fun ToolbarStrip(palette: Palette, onOpenPanel: (String) -> Unit) {
+    val icons = LocalStripIcons.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -206,22 +230,111 @@ private fun ToolbarStrip(palette: Palette, onOpenPanel: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        for (panel in PANELS) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(50))
-                    // A faint tint of the text colour, so it shows on any theme (even see-through keys).
-                    .background(palette.text.copy(alpha = 0.12f))
-                    .clickable { onOpenPanel(panel) }
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                BasicText(
-                    text = panelName(panel),
-                    maxLines = 1,
-                    style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
+        for (panel in PANELS.filter { it != SETTINGS_PANEL }) {
+            StripButton(palette, onClick = { onOpenPanel(panel) }) {
+                if (icons) {
+                    PanelGlyph(panel, palette.text)
+                } else {
+                    BasicText(
+                        text = panelName(panel),
+                        maxLines = 1,
+                        style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        StripButton(palette, onClick = { onOpenPanel(SETTINGS_PANEL) }) {
+            PanelGlyph(SETTINGS_PANEL, palette.text)
+        }
+    }
+}
+
+@Composable
+private fun StripButton(palette: Palette, onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(50))
+            // A faint tint of the text colour, so it shows on any theme (even see-through keys).
+            .background(palette.text.copy(alpha = 0.12f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+/** A small line drawing for a panel: a clipboard, a boxed "GIF", a smiling face, or a gear. */
+@Composable
+internal fun PanelGlyph(panel: String, tint: Color, sizeDp: Float = 20f) {
+    if (panel == "gif") {
+        Box(
+            modifier = Modifier
+                .border(1.5.dp, tint, RoundedCornerShape(4.dp))
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+        ) {
+            BasicText("GIF", style = TextStyle(color = tint, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+        }
+        return
+    }
+    Canvas(Modifier.size(sizeDp.dp)) {
+        val w = size.width
+        val h = size.height
+        val line = Stroke(width = w * 0.09f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        when (panel) {
+            "clipboard" -> {
+                // The board, the clip at its top, and two lines of "text".
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(w * 0.20f, h * 0.20f),
+                    size = Size(w * 0.60f, h * 0.70f),
+                    cornerRadius = CornerRadius(w * 0.08f),
+                    style = line,
                 )
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(w * 0.36f, h * 0.10f),
+                    size = Size(w * 0.28f, h * 0.18f),
+                    cornerRadius = CornerRadius(w * 0.05f),
+                )
+                drawLine(tint, Offset(w * 0.34f, h * 0.52f), Offset(w * 0.66f, h * 0.52f), w * 0.07f, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.34f, h * 0.70f), Offset(w * 0.58f, h * 0.70f), w * 0.07f, StrokeCap.Round)
+            }
+
+            "emoji" -> {
+                drawCircle(tint, radius = w * 0.40f, center = Offset(w * 0.5f, h * 0.5f), style = line)
+                drawCircle(tint, radius = w * 0.05f, center = Offset(w * 0.36f, h * 0.42f))
+                drawCircle(tint, radius = w * 0.05f, center = Offset(w * 0.64f, h * 0.42f))
+                drawArc(
+                    color = tint,
+                    startAngle = 20f,
+                    sweepAngle = 140f,
+                    useCenter = false,
+                    topLeft = Offset(w * 0.30f, h * 0.30f),
+                    size = Size(w * 0.40f, h * 0.40f),
+                    style = line,
+                )
+            }
+
+            else -> {
+                // A gear: a ring, a hole in the middle, and eight teeth around it.
+                val centre = Offset(w * 0.5f, h * 0.5f)
+                drawCircle(tint, radius = w * 0.13f, center = centre, style = line)
+                drawCircle(tint, radius = w * 0.29f, center = centre, style = line)
+                for (tooth in 0 until 8) {
+                    val angle = Math.toRadians(tooth * 45.0)
+                    val dx = cos(angle).toFloat()
+                    val dy = sin(angle).toFloat()
+                    drawLine(
+                        color = tint,
+                        start = Offset(centre.x + dx * w * 0.32f, centre.y + dy * w * 0.32f),
+                        end = Offset(centre.x + dx * w * 0.44f, centre.y + dy * w * 0.44f),
+                        strokeWidth = w * 0.13f,
+                        cap = StrokeCap.Butt,
+                    )
+                }
             }
         }
     }
@@ -286,6 +399,7 @@ private fun RowScope.KeyCell(
     selected: Boolean,
     editing: Boolean,
     repeats: Boolean,
+    slides: Boolean,
     alternates: List<String>,
     hint: String?,
     previews: Boolean,
@@ -295,6 +409,7 @@ private fun RowScope.KeyCell(
     onPopupDone: () -> Unit,
     onTap: () -> Unit,
     onAlternate: (String) -> Unit,
+    onCursor: (String) -> Unit,
 ) {
     // A gap is invisible when typing. In the editor it is drawn as a faint outline so it can be picked.
     val isGap = keyDef.look == KeyLook.SPACER
@@ -334,6 +449,7 @@ private fun RowScope.KeyCell(
     val currentOnPopup by rememberUpdatedState(onPopup)
     val currentOnPopupDone by rememberUpdatedState(onPopupDone)
     val currentOnAlternate by rememberUpdatedState(onAlternate)
+    val currentOnCursor by rememberUpdatedState(onCursor)
     val currentAlternates by rememberUpdatedState(alternates)
     val currentPreview by rememberUpdatedState(preview)
 
@@ -343,8 +459,11 @@ private fun RowScope.KeyCell(
             .weight(keyDef.width)
             .fillMaxHeight()
             .onGloballyPositioned { cell.value = it }
-            .pointerInput(repeats) {
+            .pointerInput(repeats, slides) {
                 val cellPx = POPUP_CELL_DP.dp.toPx()
+                val stepAcross = CURSOR_STEP_DP.dp.toPx()
+                val stepLine = CURSOR_LINE_DP.dp.toPx()
+                val slack = TOUCH_SLACK_DP.dp.toPx()
                 coroutineScope {
                     val scope = this
                     awaitEachGesture {
@@ -382,50 +501,95 @@ private fun RowScope.KeyCell(
                             }
                         }
 
-                        var up: PointerInputChange? = null
-                        var chosen: String? = null
+                        // What holding this key does, if anything: offer its choices, or (space bar) steer the cursor.
                         val choices = currentAlternates
-                        if (choices.isNotEmpty() && !repeats && origin != null) {
-                            // Lifted quickly: an ordinary tap. Still down after the wait: a long press.
-                            val quick = withTimeoutOrNull(LONG_PRESS_MS) { Lift(waitForUpOrCancellation()) }
-                            if (quick != null) {
-                                up = quick.change
-                            } else {
-                                // Show the choices and follow the finger until it lifts.
-                                val left = KeyboardEngine.popupLeft(origin.x, keyWidth, choices.size, cellPx, boxWidth)
-                                var index = 0
-                                currentOnPopup(KeyPopup(pos, choices, index, origin.x, origin.y, keyWidth, chooser = true))
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!change.pressed) {
-                                        change.consume()
-                                        chosen = choices[index]
-                                        break
-                                    }
-                                    val under = KeyboardEngine.popupIndex(origin.x + change.position.x, left, cellPx, choices.size)
-                                    if (under != index) {
-                                        index = under
-                                        currentOnPopup(KeyPopup(pos, choices, index, origin.x, origin.y, keyWidth, chooser = true))
-                                    }
-                                    change.consume()
+                        val chooses = !repeats && !slides && choices.isNotEmpty() && origin != null
+                        val popupLeft = if (origin != null) {
+                            KeyboardEngine.popupLeft(origin.x, keyWidth, choices.size, cellPx, boxWidth)
+                        } else {
+                            0f
+                        }
+                        var held = false
+                        var index = 0
+                        var holdJob: Job? = null
+                        if (chooses || slides) {
+                            // A plain timer: when it rings and the finger is still down, the hold has begun.
+                            holdJob = scope.launch {
+                                delay(LONG_PRESS_MS)
+                                held = true
+                                if (chooses && origin != null) {
+                                    currentOnPopup(KeyPopup(pos, choices, 0, origin.x, origin.y, keyWidth, chooser = true))
+                                } else {
+                                    currentOnDown() // a second buzz: the space bar now steers the cursor
                                 }
                             }
-                        } else {
-                            up = waitForUpOrCancellation()
                         }
 
+                        // Follow this finger until it lifts.
+                        var lifted = false
+                        var steering = false
+                        var cursorMoves = 0
+                        var anchorX = 0f
+                        var anchorY = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                // A lift that arrives already used up is Android cancelling the touch, not a real lift.
+                                if (!change.isConsumed) {
+                                    change.consume()
+                                    lifted = true
+                                }
+                                break
+                            }
+                            val at = change.position
+                            if (held && chooses && origin != null) {
+                                val under = KeyboardEngine.popupIndex(origin.x + at.x, popupLeft, cellPx, choices.size)
+                                if (under != index) {
+                                    index = under
+                                    currentOnPopup(KeyPopup(pos, choices, index, origin.x, origin.y, keyWidth, chooser = true))
+                                }
+                                change.consume()
+                            } else if (held && slides) {
+                                if (!steering) {
+                                    // Count movement from where the finger is when the hold begins.
+                                    steering = true
+                                    anchorX = at.x
+                                    anchorY = at.y
+                                }
+                                val across = KeyboardEngine.cursorSteps(at.x - anchorX, stepAcross)
+                                if (across != 0) {
+                                    repeat(abs(across)) { currentOnCursor(if (across > 0) "right" else "left") }
+                                    anchorX += across * stepAcross
+                                    cursorMoves += abs(across)
+                                }
+                                val lines = KeyboardEngine.cursorSteps(at.y - anchorY, stepLine)
+                                if (lines != 0) {
+                                    repeat(abs(lines)) { currentOnCursor(if (lines > 0) "down" else "up") }
+                                    anchorY += lines * stepLine
+                                    cursorMoves += abs(lines)
+                                }
+                                change.consume()
+                            } else if (!held) {
+                                // Sliding off the key before lifting cancels the press.
+                                val outside = at.x < -slack || at.y < -slack ||
+                                    at.x > size.width + slack || at.y > size.height + slack
+                                if (outside) break
+                            }
+                        }
+
+                        holdJob?.cancel()
                         repeatJob?.cancel()
                         pressed = false
                         currentOnPopupDone()
-                        val picked = chosen
-                        val lifted = up
-                        if (picked != null) {
-                            currentOnAlternate(picked)
-                        } else if (lifted != null) {
-                            lifted.consume()
-                            // Normal keys act when the finger lifts; sliding off the key cancels.
-                            if (!repeats) currentOnTap()
+                        if (lifted) {
+                            if (held && chooses) {
+                                currentOnAlternate(choices[index.coerceIn(0, choices.size - 1)])
+                            } else if (held && slides && cursorMoves > 0) {
+                                // The cursor was moved: do not also type a space.
+                            } else if (!repeats) {
+                                currentOnTap()
+                            }
                         }
                     }
                 }

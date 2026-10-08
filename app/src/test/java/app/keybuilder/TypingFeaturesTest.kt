@@ -5,6 +5,7 @@ import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.engine.ShiftState
 import app.keybuilder.model.ARROWS
 import app.keybuilder.model.ActionKind
+import app.keybuilder.model.BuiltInChoices
 import app.keybuilder.model.COMMANDS
 import app.keybuilder.model.Giphy
 import app.keybuilder.model.KeyAction
@@ -14,6 +15,7 @@ import app.keybuilder.model.KeyPos
 import app.keybuilder.model.LayoutFormatException
 import app.keybuilder.model.LayoutJson
 import app.keybuilder.model.MAX_ALTERNATES
+import app.keybuilder.model.SymbolData
 import app.keybuilder.model.addRecentEmoji
 import app.keybuilder.model.commandName
 import app.keybuilder.model.deleteLayer
@@ -24,12 +26,15 @@ import app.keybuilder.model.keyAt
 import app.keybuilder.model.parseAlternatesText
 import app.keybuilder.model.renameLayer
 import app.keybuilder.model.withActionKind
+import app.keybuilder.model.withAddedAlternate
 import app.keybuilder.model.withAlternates
 import app.keybuilder.model.withArrowDirection
 import app.keybuilder.model.withCommand
 import app.keybuilder.model.withKeyLabel
+import app.keybuilder.model.withKeySymbol
 import app.keybuilder.model.withNumberLayer
 import app.keybuilder.model.withNumbersOnTopRow
+import app.keybuilder.model.withShiftLabel
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,14 +62,137 @@ class TypingFeaturesTest {
     // ---------------------------------------------------------------- long-press choices
 
     @Test
-    fun theBuiltInKeyboardHasNumbersOnItsTopRow() {
+    fun everyKeyboardGetsChoicesWithoutAnySetup() {
+        // The top row of letters offers 1 to 0, shown as the corner hint, then accents.
         val top = def.layer("letters")!!.rows[0].keys
-        assertEquals(listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"), top.map { it.alternates.first() })
-        assertEquals("qwertyuiop", top.joinToString("") { it.label })
+        val hints = top.indices.map { KeyboardEngine.choicesFor(def, start, top[it], 0, it).hint }
+        assertEquals(listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"), hints)
+        val e = KeyboardEngine.choicesFor(def, start, top[2], 0, 2)
+        assertEquals("3", e.all.first())
+        assertTrue(e.all.containsAll(listOf("è", "é", "ê")))
+        assertTrue(e.all.size <= MAX_ALTERNATES)
+
+        // Other rows: accents but no digit and no hint.
+        val a = def.layer("letters")!!.rows[1].keys[1]
+        val aChoices = KeyboardEngine.choicesFor(def, start, a, 1, 1)
+        assertEquals("à", aChoices.all.first())
+        assertNull(aChoices.hint)
+        // Letters without accents offer nothing.
+        val k = def.layer("letters")!!.rows[1].keys.first { it.label == "k" }
+        assertTrue(KeyboardEngine.choicesFor(def, start, k, 1, 8).all.isEmpty())
+        // The full stop offers other punctuation.
         val stop = def.layer("letters")!!.rows[3].keys.first { it.label == "." }
-        assertEquals("?", stop.alternates.first())
+        assertEquals("?", KeyboardEngine.choicesFor(def, start, stop, 3, 3).all.first())
+        // Keys that do something else, and gaps, offer nothing.
+        val shiftKey = def.keyAt(KeyPos("letters", 2, 0))!!
+        assertTrue(KeyboardEngine.choicesFor(def, start, shiftKey, 2, 0).all.isEmpty())
+        assertTrue(KeyboardEngine.choicesFor(def, start, def.layer("letters")!!.rows[1].keys[0], 1, 0).all.isEmpty())
+
         // Tapping still types the letter.
         assertEquals(listOf<Effect>(Effect.Commit("q")), KeyboardEngine.press(def, start, def.keyAt(q)!!, 0).effects)
+    }
+
+    @Test
+    fun builtInChoicesFollowShiftAndCanBeSwitchedOff() {
+        val e = def.layer("letters")!!.rows[0].keys[2]
+        val shifted = KeyboardEngine.choicesFor(def, start.copy(shift = ShiftState.ONCE), e, 0, 2)
+        assertEquals("3", shifted.all.first())
+        assertTrue(shifted.all.contains("É"))
+        assertFalse(shifted.all.contains("é"))
+
+        val off = def.copy(builtInChoices = false)
+        assertTrue(KeyboardEngine.choicesFor(off, start, e, 0, 2).all.isEmpty())
+        assertFalse(LayoutJson.parse(LayoutJson.toJson(off)).builtInChoices)
+        assertTrue(def.builtInChoices) // on unless a file says otherwise
+    }
+
+    @Test
+    fun yourOwnChoicesReplaceTheBuiltInOnes() {
+        val mine = def.withAlternates(KeyPos("letters", 0, 2), listOf("€", "ε"))
+        val key = mine.keyAt(KeyPos("letters", 0, 2))!!
+        val choices = KeyboardEngine.choicesFor(mine, start, key, 0, 2)
+        assertEquals(listOf("€", "ε"), choices.all)
+        assertEquals("€", choices.hint)
+        // Even with built-in choices off.
+        assertEquals(listOf("€", "ε"), KeyboardEngine.choicesFor(mine.copy(builtInChoices = false), start, key, 0, 2).all)
+    }
+
+    @Test
+    fun digitsOnlyGoOnATopRowOfLetters() {
+        // The symbols layer's top row is already digits: no digit hints there.
+        val symbols = start.copy(layerId = "symbols")
+        val one = def.layer("symbols")!!.rows[0].keys[0]
+        assertNull(KeyboardEngine.choicesFor(def, symbols, one, 0, 0).hint)
+        assertEquals("¹", KeyboardEngine.choicesFor(def, symbols, one, 0, 0).all.first())
+        // Gaps and other keys in the row are skipped when counting.
+        val mixed = LayoutJson.parse(
+            """{"layers":[{"id":"a","rows":[[{"look":"spacer"},"q",{"action":"shift"},"w"],["a"]]}]}"""
+        )
+        val row = mixed.layers[0].rows[0].keys
+        val s = KeyboardEngine.initialState(mixed)
+        assertEquals("1", KeyboardEngine.choicesFor(mixed, s, row[1], 0, 1).hint)
+        assertEquals("2", KeyboardEngine.choicesFor(mixed, s, row[3], 0, 3).hint)
+        assertNull(KeyboardEngine.choicesFor(mixed, s, row[2], 0, 2).hint)
+    }
+
+    @Test
+    fun builtInTableIsSane() {
+        for (label in BuiltInChoices.labels) {
+            val choices = BuiltInChoices.forLabel(label)
+            assertTrue(label, choices.isNotEmpty())
+            assertEquals(label, choices.size, choices.toSet().size)
+            assertTrue(label, choices.none { it.isBlank() || it == label })
+        }
+        assertEquals(BuiltInChoices.forLabel("e"), BuiltInChoices.forLabel("E"))
+        assertTrue(BuiltInChoices.forLabel("k").isEmpty())
+    }
+
+    @Test
+    fun slidingOnTheSpaceBarMovesTheCursorInWholeSteps() {
+        assertEquals(0, KeyboardEngine.cursorSteps(9f, 10f))
+        assertEquals(1, KeyboardEngine.cursorSteps(10f, 10f))
+        assertEquals(3, KeyboardEngine.cursorSteps(35f, 10f))
+        assertEquals(-2, KeyboardEngine.cursorSteps(-29f, 10f))
+        assertEquals(0, KeyboardEngine.cursorSteps(-9f, 10f))
+        assertEquals(0, KeyboardEngine.cursorSteps(50f, 0f))
+    }
+
+    @Test
+    fun panelsGrowAndShrinkWithinLimits() {
+        assertEquals(0f, KeyboardEngine.resizePanel(0f, 0f, 300f), 0.01f)
+        assertEquals(104f, KeyboardEngine.resizePanel(0f, 100f, 300f), 0.01f)   // nearest step of 8
+        assertEquals(300f, KeyboardEngine.resizePanel(0f, 900f, 300f), 0.01f)   // cannot pass the limit
+        assertEquals(0f, KeyboardEngine.resizePanel(40f, -200f, 300f), 0.01f)   // cannot go below normal
+        assertEquals(160f, KeyboardEngine.resizePanel(200f, -40f, 300f), 0.01f)
+        assertEquals(0f, KeyboardEngine.resizePanel(0f, 100f, -50f), 0.01f)     // a screen too small to grow
+        assertEquals(101f, KeyboardEngine.resizePanel(1f, 100f, 300f, step = 0f), 0.01f)
+    }
+
+    @Test
+    fun symbolCatalogueIsCleanAndCanBePutOnKeys() {
+        assertTrue(SymbolData.groups.size >= 8)
+        assertEquals(SymbolData.groups.size, SymbolData.groups.map { it.name }.toSet().size)
+        for (group in SymbolData.groups) {
+            assertTrue(group.name, group.symbols.size >= 8)
+            assertEquals(group.name, group.symbols.size, group.symbols.toSet().size)
+            assertTrue(group.name, group.symbols.none { it.isBlank() })
+        }
+
+        // Replace a letter with a symbol: it shows and types the symbol, shift included.
+        val shiftedQ = def.withShiftLabel(q, "Q!").withKeySymbol(q, "₹")
+        val key = shiftedQ.keyAt(q)!!
+        assertEquals("₹", key.label)
+        assertNull(key.shiftLabel)
+        assertEquals(listOf<Effect>(Effect.Commit("₹")), KeyboardEngine.press(shiftedQ, start, key, 0).effects)
+        assertEquals(shiftedQ, LayoutJson.parse(LayoutJson.toJson(shiftedQ)))
+        // And back to a letter.
+        assertEquals(def, shiftedQ.withKeySymbol(q, "q"))
+
+        // Add long-press choices one at a time from the picker.
+        var kb = def.withAddedAlternate(q, "√").withAddedAlternate(q, "π").withAddedAlternate(q, "√")
+        assertEquals(listOf("√", "π"), kb.keyAt(q)!!.alternates)
+        repeat(20) { kb = kb.withAddedAlternate(q, "x$it") }
+        assertEquals(MAX_ALTERNATES, kb.keyAt(q)!!.alternates.size)
     }
 
     @Test
@@ -117,9 +245,8 @@ class TypingFeaturesTest {
         assertTrue(top[3].alternates.isEmpty()) // shift is not a typing key
         assertEquals(listOf("3"), top[4].alternates)
         assertTrue(numbered.layer("a")!!.rows[1].keys[0].alternates.isEmpty())
-        // Doing it twice changes nothing, and the built-in keyboard already has them.
+        // Doing it twice changes nothing.
         assertEquals(numbered, numbered.withNumbersOnTopRow("a"))
-        assertEquals(def, def.withNumbersOnTopRow("letters"))
         assertSame(def, def.withNumbersOnTopRow("missing"))
     }
 

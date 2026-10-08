@@ -50,9 +50,12 @@ class ClipboardController(private val context: Context) {
         history = ClipboardStore.load(context)
     }
 
-    fun turnOn() {
-        AppSettings.setClipboardEnabled(context, true)
-        capture() // start with whatever is on the clipboard right now
+    fun turnOn() = setHistoryOn(true)
+
+    fun setHistoryOn(on: Boolean) {
+        AppSettings.setClipboardEnabled(context, on)
+        enabled = on
+        if (on) capture() // start with whatever is on the clipboard right now
     }
 
     fun togglePin(id: Long) = update(history.togglePin(id))

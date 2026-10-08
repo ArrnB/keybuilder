@@ -14,8 +14,8 @@ android {
         // 34 on purpose: targeting 35 forces edge-to-edge drawing, which needs
         // extra inset handling in the keyboard window. Revisit before publishing.
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     buildTypes {

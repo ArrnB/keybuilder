@@ -79,6 +79,7 @@ object LayoutJson {
 
         return KeyboardDef(
             numberLayer = numberLayer,
+            builtInChoices = root.boolean("builtInChoices", "file") ?: true,
             id = root.string("id", "file") ?: "keyboard",
             name = root.string("name", "file") ?: "Keyboard",
             startLayer = startLayer,
@@ -238,6 +239,7 @@ object LayoutJson {
         put("startLayer", def.startLayer)
         put("toolbar", def.toolbar)
         def.numberLayer?.let { put("numberLayer", it) }
+        put("builtInChoices", def.builtInChoices)
         put("theme", themeElement(def.theme))
         put("layers", buildJsonArray {
             for (layer in def.layers) {

@@ -23,18 +23,7 @@
     {
       "id": "letters",
       "rows": [
-        [
-          { "label": "q", "alt": ["1"] },
-          { "label": "w", "alt": ["2"] },
-          { "label": "e", "alt": ["3"] },
-          { "label": "r", "alt": ["4"] },
-          { "label": "t", "alt": ["5"] },
-          { "label": "y", "alt": ["6"] },
-          { "label": "u", "alt": ["7"] },
-          { "label": "i", "alt": ["8"] },
-          { "label": "o", "alt": ["9"] },
-          { "label": "p", "alt": ["0"] }
-        ],
+        ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
         [
           { "look": "spacer", "width": 0.5 },
           "a", "s", "d", "f", "g", "h", "j", "k", "l",
@@ -49,7 +38,7 @@
           { "label": "?123", "action": { "type": "layer", "to": "symbols" }, "width": 1.5, "look": "function" },
           { "label": ",", "look": "function" },
           { "action": "space", "width": 5 },
-          { "label": ".", "look": "function", "alt": ["?", "!", ",", ":", ";", "'"] },
+          { "label": ".", "look": "function" },
           { "action": "enter", "width": 1.5, "look": "accent" }
         ]
       ]

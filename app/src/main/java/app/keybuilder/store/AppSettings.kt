@@ -11,6 +11,8 @@ data class TypingSettings(
     val popups: Boolean = true,
     /** Two spaces after a word type a full stop and a space. */
     val doubleSpace: Boolean = true,
+    /** Show small symbols instead of words on the strip above the keys. */
+    val stripIcons: Boolean = false,
 )
 
 /** Small settings shared by the app and the keyboard service. */
@@ -23,6 +25,7 @@ object AppSettings {
     private const val POPUPS = "key_popups"
     private const val DOUBLE_SPACE = "double_space"
     private const val RECENT_EMOJI = "recent_emoji"
+    private const val STRIP_ICONS = "strip_icons"
 
     /** The user's own GIPHY API key, or empty if none has been entered. */
     fun giphyKey(context: Context): String = prefs(context).getString(GIPHY_KEY, "").orEmpty().trim()
@@ -44,6 +47,7 @@ object AppSettings {
             vibrate = p.getBoolean(VIBRATE, true),
             popups = p.getBoolean(POPUPS, true),
             doubleSpace = p.getBoolean(DOUBLE_SPACE, true),
+            stripIcons = p.getBoolean(STRIP_ICONS, false),
         )
     }
 
@@ -52,6 +56,7 @@ object AppSettings {
             .putBoolean(VIBRATE, settings.vibrate)
             .putBoolean(POPUPS, settings.popups)
             .putBoolean(DOUBLE_SPACE, settings.doubleSpace)
+            .putBoolean(STRIP_ICONS, settings.stripIcons)
             .apply()
     }
 

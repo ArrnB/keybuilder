@@ -1,5 +1,6 @@
 package app.keybuilder.ui
 
+import android.view.MotionEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -26,16 +28,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.engine.ShiftState
 import app.keybuilder.model.ClipEntry
 import app.keybuilder.model.ClipHistory
@@ -46,9 +53,11 @@ import app.keybuilder.model.Giphy
 import app.keybuilder.model.KeyAction
 import app.keybuilder.model.TOOLBAR_HEIGHT_DP
 import app.keybuilder.model.Theme
+import app.keybuilder.store.TypingSettings
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import java.io.File
+import kotlin.math.abs
 
 /*
  * The panels that take the place of the keys: clipboard, GIF and emoji.
@@ -72,11 +81,72 @@ internal class PanelColors(theme: Theme) {
     val faint = text.copy(alpha = 0.65f)
 }
 
-/** The shared shape of every panel: a top line with "ABC" to go back, then the content. */
+/**
+ * How tall a panel is: [baseDp] is the height of the keyboard it replaces, [extraDp] is how
+ * much taller the user has dragged it, up to [maxExtraDp].
+ */
+data class PanelSize(val baseDp: Float, val extraDp: Float = 0f, val maxExtraDp: Float = 0f)
+
+/** Height of the drag handle at the top of every panel. */
+private const val HANDLE_HEIGHT_DP = 16f
+
+/** What the drag handle needs to remember between touch events. */
+private class DragMemory {
+    var startRawY = 0f
+    var startExtra = 0f
+    var moved = false
+}
+
+/**
+ * The little bar at the top of a panel. Drag it up to make the panel taller and down to
+ * shrink it again; a tap jumps between normal and tallest.
+ *
+ * It reads the finger's position on the SCREEN (rawY) rather than inside the panel, because
+ * the panel itself moves while it is being resized.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun ResizeHandle(colors: PanelColors, size: PanelSize, onResize: (Float) -> Unit) {
+    val density = LocalDensity.current.density
+    val current by rememberUpdatedState(size)
+    val report by rememberUpdatedState(onResize)
+    val drag = remember { DragMemory() }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(HANDLE_HEIGHT_DP.dp)
+            .pointerInteropFilter { event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        drag.startRawY = event.rawY
+                        drag.startExtra = current.extraDp
+                        drag.moved = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val pulledUp = (drag.startRawY - event.rawY) / density
+                        if (abs(pulledUp) > 6f) drag.moved = true
+                        if (drag.moved) {
+                            report(KeyboardEngine.resizePanel(drag.startExtra, pulledUp, current.maxExtraDp))
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!drag.moved) report(if (current.extraDp > 0f) 0f else current.maxExtraDp)
+                    }
+                }
+                true
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.width(44.dp).height(4.dp).background(colors.faint, RoundedCornerShape(50)))
+    }
+}
+
+/** The shared shape of every panel: a drag handle, a top line with "ABC" to go back, then the content. */
 @Composable
 private fun PanelFrame(
     theme: Theme,
-    heightDp: Float,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
     title: String,
     onClose: () -> Unit,
     onBackspace: (() -> Unit)? = null,
@@ -88,10 +158,11 @@ private fun PanelFrame(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(heightDp.dp)
+            .height((size.baseDp + size.extraDp).dp)
             .background(colors.background)
             .padding(horizontal = 8.dp),
     ) {
+        ResizeHandle(colors, size, onResize)
         Row(
             modifier = Modifier.fillMaxWidth().height(TOOLBAR_HEIGHT_DP.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -175,7 +246,8 @@ private fun ColumnScope.PanelNote(
 @Composable
 fun ClipboardPanel(
     theme: Theme,
-    heightDp: Float,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
     history: ClipHistory,
     enabled: Boolean,
     message: String?,
@@ -189,9 +261,12 @@ fun ClipboardPanel(
     onClear: () -> Unit,
 ) {
     val canClear = enabled && history.entries.any { !it.pinned }
+    val pinned = history.entries.filter { it.pinned }
+    val recent = history.entries.filter { !it.pinned }
     PanelFrame(
         theme = theme,
-        heightDp = heightDp,
+        size = size,
+        onResize = onResize,
         title = "Clipboard",
         onClose = onClose,
         actionText = if (canClear) "Clear" else null,
@@ -214,7 +289,16 @@ fun ClipboardPanel(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = PaddingValues(bottom = 8.dp),
             ) {
-                items(history.ordered) { entry ->
+                // Pinned items come first and stay until you unpin or remove them: Clear and the
+                // 30-item limit only touch the recent ones.
+                if (pinned.isNotEmpty()) {
+                    item { PanelText("Pinned: kept until you remove them", colors.faint, 12f) }
+                    items(pinned) { entry ->
+                        ClipRow(entry, colors, imageLoader, imageFileOf(entry), onPaste, onPin, onRemove)
+                    }
+                    if (recent.isNotEmpty()) item { PanelText("Recent", colors.faint, 12f) }
+                }
+                items(recent) { entry ->
                     ClipRow(entry, colors, imageLoader, imageFileOf(entry), onPaste, onPin, onRemove)
                 }
             }
@@ -264,7 +348,8 @@ private fun ClipRow(
 @Composable
 fun GifPanel(
     theme: Theme,
-    heightDp: Float,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
     gifs: List<GifItem>,
     loading: Boolean,
     message: String?,
@@ -279,7 +364,7 @@ fun GifPanel(
     onMore: () -> Unit,
     onPick: (GifItem) -> Unit,
 ) {
-    PanelFrame(theme = theme, heightDp = heightDp, title = "GIFs by GIPHY", onClose = onClose) { colors ->
+    PanelFrame(theme = theme, size = size, onResize = onResize, title = "GIFs by GIPHY", onClose = onClose) { colors ->
         if (!hasKey) {
             PanelNote(
                 colors,
@@ -397,12 +482,99 @@ fun GifSearchBar(theme: Theme, query: String, onCancel: () -> Unit, onSearch: ()
     }
 }
 
+// ------------------------------------------------------------------ settings
+
+/**
+ * The panel behind the gear: switch between your saved keyboards and change the everyday
+ * settings without leaving the app you are typing in.
+ */
+@Composable
+fun SettingsPanel(
+    theme: Theme,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
+    keyboards: List<Pair<String, String>>,
+    activeId: String,
+    settings: TypingSettings,
+    clipboardOn: Boolean,
+    onClose: () -> Unit,
+    onUseKeyboard: (String) -> Unit,
+    onSettings: (TypingSettings) -> Unit,
+    onClipboardOn: (Boolean) -> Unit,
+    onOpenApp: () -> Unit,
+    onOtherKeyboards: () -> Unit,
+) {
+    PanelFrame(theme = theme, size = size, onResize = onResize, title = "Settings", onClose = onClose) { colors ->
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 8.dp),
+        ) {
+            item { PanelText("Keyboard: tap one to switch to it", colors.faint, 12f) }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(keyboards) { entry ->
+                        PanelChip(
+                            text = entry.second,
+                            colors = colors,
+                            onClick = { onUseKeyboard(entry.first) },
+                            selected = entry.first == activeId,
+                        )
+                    }
+                }
+            }
+            item {
+                PanelToggle(colors, "Vibrate when a key is touched", settings.vibrate) {
+                    onSettings(settings.copy(vibrate = it))
+                }
+            }
+            item {
+                PanelToggle(colors, "Show the letter above a pressed key", settings.popups) {
+                    onSettings(settings.copy(popups = it))
+                }
+            }
+            item {
+                PanelToggle(colors, "Two spaces type a full stop", settings.doubleSpace) {
+                    onSettings(settings.copy(doubleSpace = it))
+                }
+            }
+            item {
+                PanelToggle(colors, "Symbols instead of words on the top bar", settings.stripIcons) {
+                    onSettings(settings.copy(stripIcons = it))
+                }
+            }
+            item { PanelToggle(colors, "Clipboard history", clipboardOn, onClipboardOn) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PanelChip("Open the KeyBuilder app", colors, onClick = onOpenApp, strong = true)
+                    PanelChip("Other keyboards", colors, onClick = onOtherKeyboards, strong = true)
+                }
+            }
+        }
+    }
+}
+
+/** One setting: its name, then On and Off. */
+@Composable
+private fun PanelToggle(colors: PanelColors, label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        PanelText(label, colors.text, 14f, Modifier.weight(1f), maxLines = 2)
+        PanelChip("On", colors, onClick = { onChange(true) }, selected = on)
+        PanelChip("Off", colors, onClick = { onChange(false) }, selected = !on)
+    }
+}
+
 // ------------------------------------------------------------------ emoji
 
 @Composable
 fun EmojiPanel(
     theme: Theme,
-    heightDp: Float,
+    size: PanelSize,
+    onResize: (Float) -> Unit,
     recent: List<String>,
     onClose: () -> Unit,
     onBackspace: () -> Unit,
@@ -414,7 +586,9 @@ fun EmojiPanel(
     // Start on Recent when there is something in it, otherwise on the first real group.
     var category by remember { mutableStateOf(if (shownRecent.isEmpty()) 1 else 0) }
 
-    PanelFrame(theme = theme, heightDp = heightDp, title = "Emoji", onClose = onClose, onBackspace = onBackspace) { colors ->
+    PanelFrame(
+        theme = theme, size = size, onResize = onResize, title = "Emoji", onClose = onClose, onBackspace = onBackspace,
+    ) { colors ->
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             groups.forEachIndexed { index, group ->
                 item {

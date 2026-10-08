@@ -96,6 +96,11 @@ fun ExtrasScreen(
                     on = typing.doubleSpace,
                     onChange = { onTyping(typing.copy(doubleSpace = it)) },
                 )
+                OnOffRow(
+                    label = "Symbols instead of words on the top bar",
+                    on = typing.stripIcons,
+                    onChange = { onTyping(typing.copy(stripIcons = it)) },
+                )
                 Text(
                     "Vibration also needs \"touch feedback\" to be on in the phone's own sound settings.",
                     style = MaterialTheme.typography.bodySmall,
@@ -113,9 +118,24 @@ fun ExtrasScreen(
                     Pill("Hide it", selected = !keyboard.toolbar, onClick = { onChange(keyboard.copy(toolbar = false)) })
                 }
 
+                SectionTitle("Long-press choices")
+                Text(
+                    "Hold a key, slide to a choice, lift. With built-in choices on, keys you have not " +
+                        "given choices of your own get sensible ones: 1 to 0 on a top row of letters, " +
+                        "accents on letters, related marks on punctuation. This setting belongs to the " +
+                        "keyboard in use (${keyboard.name}).",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OnOffRow(
+                    label = "Built-in choices",
+                    on = keyboard.builtInChoices,
+                    onChange = { onChange(keyboard.copy(builtInChoices = it)) },
+                )
+
                 SectionTitle("Clipboard history")
                 Text(
                     "Keeps the last 30 things you copy, text and pictures, so you can paste them again. " +
+                        "Pin an item in the clipboard panel and it stays until you remove it. " +
                         "It stays on this phone and is never sent anywhere. Things a password manager " +
                         "marks as secret are skipped. It only works while KeyBuilder is your keyboard.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -125,7 +145,7 @@ fun ExtrasScreen(
                     Pill("Off", selected = !clipboardOn, onClick = { onClipboardOn(false) })
                 }
                 OutlinedButton(onClick = { confirmErase = true }, enabled = clipboardCount > 0) {
-                    Text("Erase the history ($clipboardCount)")
+                    Text("Erase unpinned items ($clipboardCount)")
                 }
 
                 SectionTitle("GIF search")
@@ -174,7 +194,12 @@ fun ExtrasScreen(
         AlertDialog(
             onDismissRequest = { confirmErase = false },
             title = { Text("Erase the clipboard history?") },
-            text = { Text("All $clipboardCount saved items are removed, pinned ones too. This cannot be undone.") },
+            text = {
+                Text(
+                    "The $clipboardCount unpinned items are removed. Pinned items stay; remove those one " +
+                        "by one in the clipboard panel. This cannot be undone."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     onEraseClipboard()

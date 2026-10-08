@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
-import app.keybuilder.model.ClipHistory
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 import app.keybuilder.model.uniqueKeyboardId
@@ -107,6 +107,8 @@ class MainActivity : ComponentActivity() {
                     keyboards = keyboards + copy
                 }
 
+                // Tells every keyboard preview whether the strip shows symbols or words.
+                CompositionLocalProvider(LocalStripIcons provides typing.stripIcons) {
                 when (screen) {
                     SCREEN_KEYS -> LayoutScreen(keyboard = keyboard, onChange = replace, onSave = save, onBack = goHome)
 
@@ -159,7 +161,8 @@ class MainActivity : ComponentActivity() {
                             clipboardOn = on
                         },
                         onEraseClipboard = {
-                            ClipboardStore.save(context, ClipHistory())
+                            // Pinned items are kept: they stay until removed one by one.
+                            ClipboardStore.save(context, ClipboardStore.load(context).clearUnpinned())
                             clipboardCount = 0
                         },
                         typing = typing,
@@ -192,11 +195,12 @@ class MainActivity : ComponentActivity() {
                             // The keyboard may have copied things since the app last looked.
                             if (target == SCREEN_EXTRAS) {
                                 clipboardOn = AppSettings.clipboardEnabled(context)
-                                clipboardCount = ClipboardStore.load(context).entries.size
+                                clipboardCount = ClipboardStore.load(context).entries.count { !it.pinned }
                             }
                             screen = target
                         },
                     )
+                }
                 }
             }
         }

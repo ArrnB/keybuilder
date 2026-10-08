@@ -1,6 +1,7 @@
 package app.keybuilder.ime
 
 import android.content.ClipDescription
+import android.content.Intent
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.SystemClock
@@ -10,8 +11,10 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -46,6 +49,10 @@ import app.keybuilder.ui.EmojiPanel
 import app.keybuilder.ui.GifPanel
 import app.keybuilder.ui.GifSearchBar
 import app.keybuilder.ui.KeyboardView
+import app.keybuilder.ui.LocalStripIcons
+import app.keybuilder.ui.MainActivity
+import app.keybuilder.ui.PanelSize
+import app.keybuilder.ui.SettingsPanel
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -86,6 +93,12 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private var typing by mutableStateOf(TypingSettings())
 
     private var recentEmoji by mutableStateOf<List<String>>(emptyList())
+
+    /** How much taller than the keyboard the panels have been dragged, in dp. */
+    private var panelExtraDp by mutableStateOf(0f)
+
+    /** The saved keyboards (id and name), listed in the settings panel. */
+    private var savedKeyboards by mutableStateOf<List<Pair<String, String>>>(emptyList())
 
     /** A line shown in the clipboard panel, for example when a picture cannot be pasted here. */
     private var clipboardMessage by mutableStateOf<String?>(null)
@@ -135,7 +148,12 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         return ComposeView(this).apply {
             setContent {
                 val def = keyboard
-                if (def != null) KeyboardOrPanel(def)
+                if (def != null) {
+                    // Tells the strip, wherever it is drawn, whether to show symbols or words.
+                    CompositionLocalProvider(LocalStripIcons provides typing.stripIcons) {
+                        KeyboardOrPanel(def)
+                    }
+                }
             }
         }
     }
@@ -145,6 +163,11 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private fun KeyboardOrPanel(def: KeyboardDef) {
         // Panels are as tall as the keyboard so nothing jumps, but never too short to be useful.
         val height = KeyboardEngine.heightDp(def, state).coerceAtLeast(MIN_PANEL_HEIGHT_DP)
+        // A panel can be dragged taller, up to most of the screen.
+        val metrics = resources.displayMetrics
+        val maxExtra = (metrics.heightPixels / metrics.density * MAX_PANEL_SCREEN_SHARE - height).coerceAtLeast(0f)
+        val size = PanelSize(baseDp = height, extraDp = panelExtraDp.coerceIn(0f, maxExtra), maxExtraDp = maxExtra)
+        val resize: (Float) -> Unit = { panelExtraDp = it }
         val panel = state.panel
         when {
             gif.typing -> Column {
@@ -162,12 +185,14 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                     onAlternate = { _, text -> handleAlternate(text) },
                     onKeyDown = { keyTouched() },
                     showPopups = typing.popups,
+                    onCursor = { moveCursor(it) },
                 )
             }
 
             panel == "clipboard" -> ClipboardPanel(
                 theme = def.theme,
-                heightDp = height,
+                size = size,
+                onResize = resize,
                 history = clipboard.history,
                 enabled = clipboard.enabled,
                 message = clipboardMessage,
@@ -183,7 +208,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
             panel == "gif" -> GifPanel(
                 theme = def.theme,
-                heightDp = height,
+                size = size,
+                onResize = resize,
                 gifs = gif.gifs,
                 loading = gif.loading,
                 message = gif.message,
@@ -205,11 +231,33 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
             panel == "emoji" -> EmojiPanel(
                 theme = def.theme,
-                heightDp = height,
+                size = size,
+                onResize = resize,
                 onClose = { showPanel(null) },
                 recent = recentEmoji,
                 onBackspace = { currentInputConnection?.let { deleteBackward(it) } },
                 onPick = { pickEmoji(it) },
+            )
+
+            panel == "settings" -> SettingsPanel(
+                theme = def.theme,
+                size = size,
+                onResize = resize,
+                keyboards = savedKeyboards,
+                activeId = def.id,
+                settings = typing,
+                clipboardOn = clipboard.enabled,
+                onClose = { showPanel(null) },
+                onUseKeyboard = { useKeyboard(it) },
+                onSettings = { changed ->
+                    typing = changed
+                    AppSettings.setTyping(this, changed)
+                },
+                onClipboardOn = { on -> clipboard.setHistoryOn(on) },
+                onOpenApp = { openApp() },
+                onOtherKeyboards = {
+                    getSystemService(InputMethodManager::class.java).showInputMethodPicker()
+                },
             )
 
             else -> KeyboardView(
@@ -220,6 +268,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 onAlternate = { _, text -> handleAlternate(text) },
                 onKeyDown = { keyTouched() },
                 showPopups = typing.popups,
+                onCursor = { moveCursor(it) },
             )
         }
     }
@@ -399,6 +448,24 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 clipboard.refresh()
             }
             "gif" -> gif.open()
+            "settings" -> {
+                clipboard.refresh()
+                savedKeyboards = LayoutRepository.list(this).map { it.id to it.name }
+            }
+        }
+    }
+
+    /** Switches to another saved keyboard and shows it straight away. */
+    private fun useKeyboard(id: String) {
+        LayoutRepository.setActive(this, id)
+        if (!reloadIfChanged()) showPanel(null)
+    }
+
+    private fun openApp() {
+        try {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            // Some lock-screen situations do not allow opening an app. Nothing sensible to do.
         }
     }
 
@@ -465,5 +532,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private companion object {
         const val GIF_TYPE = "image/gif"
         const val MIN_PANEL_HEIGHT_DP = 240f
+
+        /** How much of the screen's height a panel may take when dragged up. */
+        const val MAX_PANEL_SCREEN_SHARE = 0.78f
     }
 }

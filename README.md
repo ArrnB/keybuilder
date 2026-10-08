@@ -3,10 +3,13 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 5** is about how typing feels: long-press choices, key pop-ups, arrow and
-copy/paste keys, vibration, a number layer for number boxes, and a few panel extras.
-Earlier phases: 1 the working keyboard, 2 the style editor, 3 the layout editor and
-several saved keyboards, 4 the shortcut strip with clipboard, GIF and emoji panels.
+**Phase 6** fixes long press and adds: built-in long-press choices on every keyboard,
+space-bar cursor steering, panels you can drag taller, a settings gear on the strip (switch
+keyboards and change settings without leaving the app you are in), symbols instead of words
+on the strip, clearer clipboard pinning, and a symbol picker in the key editor.
+Earlier phases: 1 the working keyboard, 2 the style editor, 3 the layout editor and several
+saved keyboards, 4 the strip with clipboard, GIF and emoji panels, 5 long-press choices,
+pop-ups, arrow and copy/paste keys, vibration and number boxes.
 
 ## Run it
 
@@ -26,9 +29,11 @@ Keyboard
 - QWERTY letters, two symbol layers, space, enter, backspace (hold to repeat)
 - Shift: tap for one capital, double tap for caps lock, automatic capital at the start of a sentence
 - Enter does the right thing per text field (new line, search, send, next)
-- Long-press choices: hold a key, slide to a choice, lift to type it. The first choice is
-  shown small in the key's corner. The built-in keyboard has 1 to 0 on the top row and
-  punctuation on the full stop
+- Long-press choices: hold a key, slide to a choice, lift to type it. Every keyboard has them
+  without any setup: 1 to 0 on a top row of letters (shown small in the key's corner), accents
+  on letters, related marks on punctuation. Choices you set yourself replace the built-in ones
+- Hold the space bar, then slide: left and right move the cursor a character at a time, up and
+  down a line at a time
 - The pressed letter is shown enlarged above the key
 - Arrow keys (they repeat while held) and copy, paste, cut and select-all keys, as key types
 - A short vibration when a key is touched
@@ -36,10 +41,18 @@ Keyboard
 - Two spaces after a word type a full stop
 
 Shortcut strip and panels
-- A strip above the keys with **Clipboard**, **GIF** and **Emoji** buttons; each opens a panel
-  where the keys were, and **ABC** brings the keys back
-- Clipboard: keeps the last 30 things you copy, text and pictures. Tap to paste, pin to keep,
-  remove, clear. Off until you turn it on. Anything a password manager marks as secret is skipped
+- A strip above the keys with **Clipboard**, **GIF** and **Emoji** buttons and a settings gear
+  at the right end; each opens a panel where the keys were, and **ABC** brings the keys back.
+  The buttons can show small symbols instead of words
+- Every panel has a small bar at its top: drag it up to make the panel taller (to see more
+  GIFs, emoji or clipboard items) and down to shrink it; a tap jumps between normal and tallest
+- Settings (the gear): switch to another of your saved keyboards, turn vibration, pop-ups,
+  double space, strip symbols and clipboard history on or off, open the app, or switch to
+  another keyboard app, all without leaving the app you are typing in
+- Clipboard: keeps the last 30 things you copy, text and pictures. Tap to paste. **Pin** an item
+  and it moves to a Pinned section and stays until you unpin or remove it; Clear and the
+  30-item limit never touch pinned items. Off until you turn it on. Anything a password
+  manager marks as secret is skipped
 - GIF: trending GIFs, one-tap searches, and typed search (tap the search box and the keys type
   into it), with "More GIFs" at the end of the list. Tap a GIF to send it; where an app takes
   text only, a link is typed instead
@@ -54,7 +67,9 @@ Layout editor (home screen > **Edit keys**)
 - Change what is written on a key, and what it shows and types with shift
 - Choose what a key does: type its letter, type a text of any length (a snippet), shift,
   backspace, enter, space, open a layer, open a panel, move the cursor, copy or paste, or nothing
-- Give a key long-press choices, or put 1 to 0 on a layer's top row in one tap
+- Change any key to any letter, number or symbol: "Pick a letter or symbol" opens a catalogue
+  (letters, numbers, punctuation, brackets, maths, money, arrows, Greek, accents, marks)
+- Give a key its own long-press choices, typed or picked from the same catalogue
 - Key width, and a key's look: normal, function, accent, or an invisible gap
 - Rows: height, add, move up and down, delete
 - Layers: add, rename, copy, delete, choose which one opens first and which opens in number boxes
@@ -80,7 +95,7 @@ Typing settings (home screen > **Settings**): vibration, the letter pop-up, and 
 double-space full stop can each be switched off.
 
 Not in yet: dragging keys with a finger in the editor (keys move with buttons for now),
-sharing keyboards as files, emoji search and skin tones, suggestions, autocorrect, swipe typing.
+emoji search and skin tones, word suggestions and autocorrect.
 
 ## Where things are
 
@@ -96,6 +111,8 @@ app/src/main/
     model/ClipHistory.kt         the clipboard history and its rules
     model/Giphy.kt               the addresses asked of GIPHY and how its answers are read
     model/EmojiData.kt           the emoji list
+    model/SymbolData.kt          the catalogue behind "Pick a letter or symbol"
+    model/BuiltInChoices.kt      the long-press choices keys get without any setup
     model/LayoutRepository.kt    the saved keyboards and which one is in use
     engine/KeyboardEngine.kt     the logic: shift, layers, panels, what a tap types
     net/Http.kt                  the only code that goes online
@@ -105,12 +122,13 @@ app/src/main/
     ime/ClipboardController.kt   watches the phone's clipboard
     ime/GifController.kt         runs GIF searches and downloads
     ui/KeyboardView.kt           draws a keyboard and the strip (shared by the keyboard and the app)
-    ui/Panels.kt                 the clipboard, GIF and emoji panels
+    ui/Panels.kt                 the clipboard, GIF, emoji and settings panels, and their drag handle
     ui/LayoutScreen.kt           the layout editor
     ui/StyleScreen.kt            the style editor
     ui/KeyboardsScreen.kt        the list of saved keyboards
     ui/ExtrasScreen.kt           settings for the strip and the panels
     ui/ColorPickerDialog.kt      the colour picker
+    ui/SymbolPickerDialog.kt     the letter and symbol catalogue
     ui/Widgets.kt                shared pieces: pills, rows, the text pop-up, auto-save
     ui/MainActivity.kt           home screen, navigation, and all saving
 app/src/test/                    tests for the model, the engine and the panel logic
@@ -210,33 +228,37 @@ the Tenor API to outside developers on 30 June 2026). To switch provider later, 
 - The clipboard history is kept in the app's private storage and is never sent anywhere. It is
   off until you turn it on, and it can be erased from **Settings**.
 
-## Your existing keyboards
+## Adding your own characters
 
-Keyboards you already saved keep working and get pop-ups, vibration and the double-space
-rule straight away. Three things live in the keyboard's own data, so they are only on **new**
-keyboards until you add them: in **Edit keys**, tap "Put numbers on the top row" for the
-long-press digits, "Use in number boxes" on your symbols layer, and "Long-press choices"
-on any key you want to give choices to.
+The catalogue in the key editor is the list in `model/SymbolData.kt`, and the built-in
+long-press choices are the table in `model/BuiltInChoices.kt`. Both are plain lists: add a
+character or a whole group and it appears in the app.
 
 ## How it was checked
 
-Phases 1 to 4 have been built and run. For phase 5, everything without Android code was
-compiled and its 101 tests passed, including the rules behind every new feature: which
-long-press choice is under the finger, where the pop-up sits so it stays on screen, when two
-spaces make a full stop, and which layer a number box opens. The Android parts (the touch
-handling for long press and sliding, drawing the pop-up, vibration, cursor and copy/paste
-commands, the new editor controls) were written without access to the Android build tools,
-so **phase 5 has not been built or run yet**. The touch handling was rewritten for long press,
-which makes it the most likely place for a surprise; if keys misbehave or the build stops,
-send the error text or a screenshot.
+Phases 1 to 5 have been built and run. For phase 6, everything without Android code was
+compiled and its 108 tests passed, including the rules behind the new features: which
+long-press choices each key gets, how far a slide on the space bar moves the cursor, how a
+panel grows and shrinks within its limits, and putting catalogue symbols on keys. The Android
+parts (the rewritten touch handling, the strip symbols and gear, the drag handle, the settings
+panel, the symbol picker) were written without access to the Android build tools, so
+**phase 6 has not been built or run yet**. If the build stops or something misbehaves, send
+the error text or a screenshot.
+
+About the long-press fix: phase 5 only offered choices on keys that had been given some, and
+keyboards saved before phase 5 had none, so holding a key did nothing. Now every keyboard has
+built-in choices. The hold detection was also rewritten to use a plain timer. If holding a
+key still does nothing, the useful detail is whether the small digits show in the corners of
+the top row.
 
 ## Roadmap
 
-6. **Editor extras:** dragging keys with a finger, sharing keyboards as files (export and import)
-7. **Panel extras:** emoji search and skin tones, stickers
-8. **Typing help:** word suggestions and autocorrect (a large project on its own), swipe on the
-   space bar to move the cursor
-9. **Polish:** key sounds, landscape tuning, light and dark variants of a keyboard
+7. **Word suggestions and autocorrect:** to be discussed after this phase is tested
+8. **Editor extras:** dragging keys with a finger
+9. **Panel extras:** emoji search and skin tones, stickers
+10. **Polish:** key sounds, landscape tuning, light and dark variants of a keyboard
+
+Decided against: sharing keyboards as files, and swipe (glide) typing.
 
 `targetSdk` is 34 for now. Targeting 35 forces edge-to-edge drawing, which needs extra
 handling so the keyboard does not sit under the navigation bar.

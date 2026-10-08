@@ -65,11 +65,13 @@ import app.keybuilder.model.parseAlternatesText
 import app.keybuilder.model.renameLayer
 import app.keybuilder.model.warnings
 import app.keybuilder.model.withActionKind
+import app.keybuilder.model.withAddedAlternate
 import app.keybuilder.model.withAlternates
 import app.keybuilder.model.withArrowDirection
 import app.keybuilder.model.withCommand
 import app.keybuilder.model.withKeyLabel
 import app.keybuilder.model.withKeyLook
+import app.keybuilder.model.withKeySymbol
 import app.keybuilder.model.withKeyText
 import app.keybuilder.model.withKeyWidth
 import app.keybuilder.model.withLayerTarget
@@ -81,7 +83,9 @@ import app.keybuilder.model.withShiftLabel
 import app.keybuilder.model.withStartLayer
 
 /** The pop-ups this screen can show. Only one is open at a time. */
-private enum class LayoutDialog { LABEL, SHIFT_LABEL, KEY_TEXT, ALTERNATES, NEW_LAYER, RENAME_LAYER, DELETE_LAYER }
+private enum class LayoutDialog {
+    LABEL, SHIFT_LABEL, KEY_TEXT, ALTERNATES, SYMBOL_FOR_KEY, SYMBOL_FOR_CHOICE, NEW_LAYER, RENAME_LAYER, DELETE_LAYER,
+}
 
 /**
  * The layout editor: which keys exist, where they sit and what they do.
@@ -238,6 +242,24 @@ fun LayoutScreen(
                 commit(null, keyboard.withShiftLabel(pos, text))
                 closeDialog()
             },
+        )
+    }
+    if (open == LayoutDialog.SYMBOL_FOR_KEY && pos != null) {
+        SymbolPickerDialog(
+            title = "Put on the key",
+            onDismiss = closeDialog,
+            onPick = { symbol ->
+                commit(null, keyboard.withKeySymbol(pos, symbol))
+                closeDialog()
+            },
+        )
+    }
+    if (open == LayoutDialog.SYMBOL_FOR_CHOICE && pos != null) {
+        // Stays open so several choices can be added one after another.
+        SymbolPickerDialog(
+            title = "Add long-press choices",
+            onDismiss = closeDialog,
+            onPick = { symbol -> commit(null, keyboard.withAddedAlternate(pos, symbol)) },
         )
     }
     if (open == LayoutDialog.ALTERNATES && pos != null && keyDef != null) {
@@ -421,9 +443,23 @@ private fun KeyEditor(
         if (kind != ActionKind.BACKSPACE && kind != ActionKind.ARROW) {
             TextRow(
                 label = "Long-press choices",
-                value = formatAlternates(keyDef.alternates).ifEmpty { "none" },
+                value = formatAlternates(keyDef.alternates).ifEmpty {
+                    if (keyboard.builtInChoices && kind == ActionKind.LABEL) "built-in" else "none"
+                },
                 onClick = { openDialog(LayoutDialog.ALTERNATES) },
             )
+        }
+        // Pick from a catalogue instead of typing: any letter, number, punctuation mark or symbol.
+        ScrollRow {
+            Pill("Pick a letter or symbol", selected = false, onClick = { openDialog(LayoutDialog.SYMBOL_FOR_KEY) })
+            if (kind != ActionKind.BACKSPACE && kind != ActionKind.ARROW) {
+                Pill(
+                    text = "Add choices from symbols",
+                    selected = false,
+                    onClick = { openDialog(LayoutDialog.SYMBOL_FOR_CHOICE) },
+                    enabled = keyDef.alternates.size < MAX_ALTERNATES,
+                )
+            }
         }
 
         SectionTitle("What it does")

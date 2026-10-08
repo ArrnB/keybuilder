@@ -20,6 +20,11 @@ data class KeyboardDef(
     val toolbar: Boolean = true,
     /** The layer to open in boxes that only take numbers (phone, amount, PIN), or null for the start layer. */
     val numberLayer: String? = null,
+    /**
+     * Give keys without long-press choices of their own some sensible ones: accents on
+     * letters, relatives on punctuation, and 1 to 0 on a top row of letters.
+     */
+    val builtInChoices: Boolean = true,
 ) {
     fun layer(id: String): Layer? = layers.firstOrNull { it.id == id }
 }
@@ -80,13 +85,17 @@ sealed interface KeyAction {
     data object None : KeyAction
 }
 
-/** The built-in panels, in the order they appear on the shortcut strip. */
-val PANELS = listOf("clipboard", "gif", "emoji")
+/**
+ * The built-in panels. The first three are the buttons on the left of the shortcut strip;
+ * "settings" is the gear at its right end.
+ */
+val PANELS = listOf("clipboard", "gif", "emoji", "settings")
 
 fun panelName(id: String): String = when (id) {
     "clipboard" -> "Clipboard"
     "gif" -> "GIF"
     "emoji" -> "Emoji"
+    "settings" -> "Settings"
     else -> id
 }
 

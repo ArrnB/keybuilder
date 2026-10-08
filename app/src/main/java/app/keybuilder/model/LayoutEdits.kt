@@ -119,6 +119,20 @@ fun KeyboardDef.withKeyWidth(pos: KeyPos, width: Float): KeyboardDef =
 
 fun KeyboardDef.withKeyLabel(pos: KeyPos, label: String): KeyboardDef = withKey(pos) { it.copy(label = label) }
 
+/**
+ * Puts a character from the symbol picker on a key. A leftover shift label from the old
+ * character would be wrong for the new one, so it is cleared.
+ */
+fun KeyboardDef.withKeySymbol(pos: KeyPos, symbol: String): KeyboardDef =
+    withKey(pos) { it.copy(label = symbol, shiftLabel = null) }
+
+/** Adds one more long-press choice at the end, unless it is already there or the key is full. */
+fun KeyboardDef.withAddedAlternate(pos: KeyPos, choice: String): KeyboardDef =
+    withKey(pos) { key ->
+        if (choice.isEmpty() || choice in key.alternates || key.alternates.size >= MAX_ALTERNATES) key
+        else key.copy(alternates = key.alternates + choice)
+    }
+
 /** An empty [text] means "use the label in capitals" again. */
 fun KeyboardDef.withShiftLabel(pos: KeyPos, text: String): KeyboardDef =
     withKey(pos) { it.copy(shiftLabel = text.ifEmpty { null }) }
