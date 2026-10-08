@@ -33,6 +33,7 @@ import app.keybuilder.model.KeyLook
 import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.Layer
+import app.keybuilder.model.PANELS
 import app.keybuilder.model.ROW_HEIGHT_MAX
 import app.keybuilder.model.ROW_HEIGHT_MIN
 import app.keybuilder.model.addLayer
@@ -54,6 +55,7 @@ import app.keybuilder.model.layerNameProblem
 import app.keybuilder.model.moveKey
 import app.keybuilder.model.moveKeyToRow
 import app.keybuilder.model.moveRow
+import app.keybuilder.model.panelName
 import app.keybuilder.model.renameLayer
 import app.keybuilder.model.warnings
 import app.keybuilder.model.withActionKind
@@ -62,6 +64,7 @@ import app.keybuilder.model.withKeyLook
 import app.keybuilder.model.withKeyText
 import app.keybuilder.model.withKeyWidth
 import app.keybuilder.model.withLayerTarget
+import app.keybuilder.model.withPanelTarget
 import app.keybuilder.model.withRowHeight
 import app.keybuilder.model.withShiftLabel
 import app.keybuilder.model.withStartLayer
@@ -386,6 +389,18 @@ private fun KeyEditor(
                 value = action.text.ifEmpty { "nothing yet" },
                 onClick = { openDialog(LayoutDialog.KEY_TEXT) },
             )
+        }
+        if (action is KeyAction.OpenPanel) {
+            Text("Which panel it opens", style = MaterialTheme.typography.bodyLarge)
+            ScrollRow {
+                for (panel in PANELS) {
+                    Pill(
+                        text = panelName(panel),
+                        selected = panel == action.panel,
+                        onClick = { commit(null, keyboard.withPanelTarget(pos, panel)) },
+                    )
+                }
+            }
         }
         if (action is KeyAction.SwitchLayer) {
             Text("Which layer it opens", style = MaterialTheme.typography.bodyLarge)

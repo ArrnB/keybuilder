@@ -140,6 +140,7 @@ enum class ActionKind(val label: String) {
     ENTER("Enter"),
     SPACE("Space"),
     LAYER("Opens a layer"),
+    PANEL("Opens a panel"),
     NONE("Nothing"),
 }
 
@@ -151,6 +152,7 @@ fun KeyAction.kind(): ActionKind = when (this) {
     KeyAction.Enter -> ActionKind.ENTER
     KeyAction.Space -> ActionKind.SPACE
     is KeyAction.SwitchLayer -> ActionKind.LAYER
+    is KeyAction.OpenPanel -> ActionKind.PANEL
     KeyAction.None -> ActionKind.NONE
 }
 
@@ -188,8 +190,27 @@ fun KeyboardDef.withActionKind(pos: KeyPos, kind: ActionKind): KeyboardDef = wit
                 look = if (plain) KeyLook.FUNCTION else key.look,
             )
         }
+        ActionKind.PANEL -> {
+            val panel = PANELS.first()
+            key.copy(
+                action = KeyAction.OpenPanel(panel),
+                label = if (placeholder || key.label.isEmpty()) panelName(panel) else key.label,
+                shiftLabel = null,
+                look = if (plain) KeyLook.FUNCTION else key.look,
+            )
+        }
         ActionKind.NONE -> key.copy(action = KeyAction.None, shiftLabel = null)
     }
+}
+
+/** Points a panel key at another panel. If the key was named after the old panel, the name follows. */
+fun KeyboardDef.withPanelTarget(pos: KeyPos, panel: String): KeyboardDef = withKey(pos) { key ->
+    val action = key.action
+    if (action !is KeyAction.OpenPanel || panel !in PANELS) key
+    else key.copy(
+        action = KeyAction.OpenPanel(panel),
+        label = if (key.label == panelName(action.panel)) panelName(panel) else key.label,
+    )
 }
 
 /** Points a layer key at another layer. If the key was named after the old layer, the name follows. */

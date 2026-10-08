@@ -1,19 +1,28 @@
 package app.keybuilder.ime
 
+import android.content.ClipDescription
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.SystemClock
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.content.FileProvider
+import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
+import androidx.core.view.inputmethod.InputContentInfoCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
@@ -22,16 +31,27 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.keybuilder.engine.Effect
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.engine.KeyboardState
+import app.keybuilder.model.ClipEntry
+import app.keybuilder.model.GifItem
 import app.keybuilder.model.KeyDef
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
+import app.keybuilder.ui.ClipboardPanel
+import app.keybuilder.ui.EmojiPanel
+import app.keybuilder.ui.GifPanel
+import app.keybuilder.ui.GifSearchBar
 import app.keybuilder.ui.KeyboardView
+import coil.ImageLoader
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import java.io.File
+import kotlinx.coroutines.launch
 
 /**
  * The keyboard service. Android creates it when a text field needs a keyboard.
  *
- * Its job is small: show KeyboardView, pass taps to KeyboardEngine, and send whatever
- * the engine answers to the text field through the "input connection".
+ * It shows the keys (KeyboardView) or one of the panels, passes taps to KeyboardEngine,
+ * and sends whatever comes out to the text field through the "input connection".
  *
  * The LifecycleOwner / SavedStateRegistryOwner parts are plumbing: Compose refuses to
  * run in a window that has no lifecycle, and a keyboard service does not come with one.
@@ -54,10 +74,30 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     /** Which saved version of the layout is on screen, see LayoutRepository.activeVersion. */
     private var loadedVersion: String? = null
 
+    private lateinit var clipboard: ClipboardController
+    private lateinit var gif: GifController
+
+    /** A line shown in the clipboard panel, for example when a picture cannot be pasted here. */
+    private var clipboardMessage by mutableStateOf<String?>(null)
+
+    /** Loads pictures for the panels and plays GIFs. Made the first time a panel needs it. */
+    private val imageLoader: ImageLoader by lazy {
+        ImageLoader.Builder(this)
+            .components {
+                if (Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory()) else add(GifDecoder.Factory())
+            }
+            .build()
+    }
+
     override fun onCreate() {
         super.onCreate()
         savedStateController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+
+        clipboard = ClipboardController(this)
+        clipboard.start()
+        gif = GifController(this, lifecycleScope)
+        gif.tidyCache()
 
         reloadIfChanged()
     }
@@ -84,10 +124,78 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
         return ComposeView(this).apply {
             setContent {
-                keyboard?.let { def ->
-                    KeyboardView(def = def, state = state, onKey = { handleKey(it) })
-                }
+                val def = keyboard
+                if (def != null) KeyboardOrPanel(def)
             }
+        }
+    }
+
+    /** Decides what fills the keyboard area: the keys, a panel, or the keys with the GIF search bar. */
+    @Composable
+    private fun KeyboardOrPanel(def: KeyboardDef) {
+        // Panels are as tall as the keyboard so nothing jumps, but never too short to be useful.
+        val height = KeyboardEngine.heightDp(def, state).coerceAtLeast(MIN_PANEL_HEIGHT_DP)
+        val panel = state.panel
+        when {
+            gif.typing -> Column {
+                GifSearchBar(
+                    theme = def.theme,
+                    query = gif.query,
+                    onCancel = { showPanel("gif") },
+                    onSearch = { runGifSearch() },
+                )
+                KeyboardView(def = def, state = state, onKey = { handleKey(it) }, showToolbar = false)
+            }
+
+            panel == "clipboard" -> ClipboardPanel(
+                theme = def.theme,
+                heightDp = height,
+                history = clipboard.history,
+                enabled = clipboard.enabled,
+                message = clipboardMessage,
+                imageLoader = imageLoader,
+                imageFileOf = { clipboard.imageFile(it) },
+                onClose = { showPanel(null) },
+                onTurnOn = { clipboard.turnOn() },
+                onPaste = { pasteClip(it) },
+                onPin = { clipboard.togglePin(it) },
+                onRemove = { clipboard.remove(it) },
+                onClear = { clipboard.clearUnpinned() },
+            )
+
+            panel == "gif" -> GifPanel(
+                theme = def.theme,
+                heightDp = height,
+                gifs = gif.gifs,
+                loading = gif.loading,
+                message = gif.message,
+                query = gif.query,
+                hasKey = gif.hasKey,
+                imageLoader = imageLoader,
+                onClose = { showPanel(null) },
+                onSearchBox = {
+                    // Bring the keys back, but send what they type to the search words.
+                    state = state.copy(panel = null)
+                    gif.typing = true
+                },
+                onQuickSearch = { gif.search(it) },
+                onPick = { sendGif(it) },
+            )
+
+            panel == "emoji" -> EmojiPanel(
+                theme = def.theme,
+                heightDp = height,
+                onClose = { showPanel(null) },
+                onBackspace = { currentInputConnection?.let { deleteBackward(it) } },
+                onPick = { currentInputConnection?.commitText(it, 1) },
+            )
+
+            else -> KeyboardView(
+                def = def,
+                state = state,
+                onKey = { handleKey(it) },
+                onOpenPanel = { showPanel(it) },
+            )
         }
     }
 
@@ -98,6 +206,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         if (!restarting && !reloaded) {
             keyboard?.let { state = KeyboardEngine.initialState(it) }
         }
+        if (!restarting) gif.typing = false
+        clipboard.refresh()
         syncAutoCaps()
     }
 
@@ -107,6 +217,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     }
 
     override fun onDestroy() {
+        clipboard.stop()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
     }
@@ -114,11 +225,28 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     /** In landscape Android would otherwise cover the app with a full-screen typing box. */
     override fun onEvaluateFullscreenMode(): Boolean = false
 
+    // ------------------------------------------------------------------ keys
+
     private fun handleKey(key: KeyDef) {
         val def = keyboard ?: return
         val before = state
         val result = KeyboardEngine.press(def, before, key, SystemClock.uptimeMillis())
         state = result.state
+
+        // A key that opens a panel.
+        val opened = result.state.panel
+        if (opened != null && opened != before.panel) {
+            showPanel(opened)
+            return
+        }
+
+        // While search words are being typed, the keys fill in the words, not the app's text.
+        if (gif.typing) {
+            val (words, submitted) = KeyboardEngine.typeIntoQuery(gif.query, result.effects)
+            gif.query = words
+            if (submitted) runGifSearch()
+            return
+        }
 
         val connection = currentInputConnection ?: return
         for (effect in result.effects) {
@@ -161,5 +289,85 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         val capitalizeNext = info.inputType != InputType.TYPE_NULL &&
             connection.getCursorCapsMode(info.inputType) != 0
         state = KeyboardEngine.withAutoCaps(state, capitalizeNext)
+    }
+
+    // ------------------------------------------------------------------ panels
+
+    /** Shows a panel, or the keys again when [panel] is null. */
+    private fun showPanel(panel: String?) {
+        gif.typing = false
+        state = state.copy(panel = panel)
+        when (panel) {
+            "clipboard" -> {
+                clipboardMessage = null
+                clipboard.refresh()
+            }
+            "gif" -> gif.open()
+        }
+    }
+
+    private fun runGifSearch() {
+        gif.typing = false
+        state = state.copy(panel = "gif")
+        gif.search(gif.query)
+    }
+
+    private fun pasteClip(entry: ClipEntry) {
+        val text = entry.text
+        val file = clipboard.imageFile(entry)
+        if (text != null) {
+            currentInputConnection?.commitText(text, 1)
+        } else if (file != null) {
+            val sent = file.exists() && sendPicture(file, entry.mime ?: "image/png", "Copied picture")
+            clipboardMessage = if (sent) null else "This text box does not accept pictures."
+        }
+    }
+
+    private fun sendGif(item: GifItem) {
+        if (!fieldAccepts(GIF_TYPE)) {
+            // Plenty of text boxes take text only. A link is the next best thing.
+            currentInputConnection?.commitText(item.pageUrl + " ", 1)
+            gif.message = "This text box does not accept GIFs, so a link was typed instead."
+            return
+        }
+        gif.message = "Sending"
+        lifecycleScope.launch {
+            val file = gif.download(item)
+            gif.message = when {
+                file == null -> "Could not download that GIF. Check the internet and try again."
+                sendPicture(file, GIF_TYPE, item.title) -> null
+                else -> "The app did not take the GIF."
+            }
+        }
+    }
+
+    /** True if the text box being typed in says it accepts pictures of this type. */
+    private fun fieldAccepts(mime: String): Boolean {
+        val info = currentInputEditorInfo ?: return false
+        return EditorInfoCompat.getContentMimeTypes(info).any { ClipDescription.compareMimeTypes(mime, it) }
+    }
+
+    /**
+     * Hands a picture file to the app being typed in. The app gets permission to read this
+     * one file and nothing else. Returns false if the text box does not take such pictures.
+     */
+    private fun sendPicture(file: File, mime: String, label: String): Boolean {
+        val info = currentInputEditorInfo ?: return false
+        val connection = currentInputConnection ?: return false
+        if (!fieldAccepts(mime)) return false
+        return try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+            val content = InputContentInfoCompat(uri, ClipDescription(label, arrayOf(mime)), null)
+            InputConnectionCompat.commitContent(
+                connection, info, content, InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null,
+            )
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private companion object {
+        const val GIF_TYPE = "image/gif"
+        const val MIN_PANEL_HEIGHT_DP = 240f
     }
 }

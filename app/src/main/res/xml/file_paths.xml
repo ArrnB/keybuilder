@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only two folders whose files may be handed to other apps. -->
+<paths>
+    <!-- GIFs downloaded to be sent. -->
+    <cache-path name="shared" path="shared/" />
+    <!-- Pictures kept by the clipboard history. -->
+    <files-path name="clipboard" path="clipboard/" />
+</paths>

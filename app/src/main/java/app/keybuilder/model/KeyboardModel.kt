@@ -16,6 +16,8 @@ data class KeyboardDef(
     val startLayer: String,
     val theme: Theme = Theme(),
     val layers: List<Layer>,
+    /** Show the strip of shortcuts (clipboard, GIF, emoji) above the keys. */
+    val toolbar: Boolean = true,
 ) {
     fun layer(id: String): Layer? = layers.firstOrNull { it.id == id }
 }
@@ -61,9 +63,25 @@ sealed interface KeyAction {
     /** Shows another layer. */
     data class SwitchLayer(val layer: String) : KeyAction
 
+    /** Opens one of the PANELS in place of the keys. */
+    data class OpenPanel(val panel: String) : KeyAction
+
     /** Does nothing. */
     data object None : KeyAction
 }
+
+/** The built-in panels, in the order they appear on the shortcut strip. */
+val PANELS = listOf("clipboard", "gif", "emoji")
+
+fun panelName(id: String): String = when (id) {
+    "clipboard" -> "Clipboard"
+    "gif" -> "GIF"
+    "emoji" -> "Emoji"
+    else -> id
+}
+
+/** Height of the shortcut strip in dp. */
+const val TOOLBAR_HEIGHT_DP = 42f
 
 /** Which of the theme's colour groups a key uses. */
 enum class KeyLook(val jsonName: String) {

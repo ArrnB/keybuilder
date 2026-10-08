@@ -4,6 +4,8 @@ import app.keybuilder.model.KeyAction
 import app.keybuilder.model.KeyDef
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.Layer
+import app.keybuilder.model.PANELS
+import app.keybuilder.model.TOOLBAR_HEIGHT_DP
 
 /*
  * The keyboard's "brain". It knows nothing about Android or drawing:
@@ -18,6 +20,8 @@ data class KeyboardState(
     val shift: ShiftState = ShiftState.OFF,
     /** When shift was last tapped, used to spot a double tap. */
     val shiftTappedAtMs: Long? = null,
+    /** The panel shown instead of the keys (see PANELS), or null for the normal keyboard. */
+    val panel: String? = null,
 )
 
 /** Something the keyboard asks the text field to do. */
@@ -71,8 +75,39 @@ object KeyboardEngine {
                         shift = if (state.shift == ShiftState.LOCKED) ShiftState.LOCKED else ShiftState.OFF,
                     )
                 )
+            is KeyAction.OpenPanel ->
+                if (action.panel in PANELS) PressResult(state.copy(panel = action.panel)) else PressResult(state)
             KeyAction.None -> PressResult(state)
         }
+
+    /**
+     * How tall the keyboard is in dp, strip included. Panels use the same height, so the
+     * keyboard does not jump when one opens.
+     */
+    fun heightDp(def: KeyboardDef, state: KeyboardState): Float {
+        val rows = currentLayer(def, state).rows.sumOf { (def.theme.keyHeightDp * it.height).toDouble() }.toFloat()
+        return rows + def.theme.keyGapDp + if (def.toolbar) TOOLBAR_HEIGHT_DP else 0f
+    }
+
+    /**
+     * Used while typing a GIF search: the keys fill in the search words instead of the
+     * app's text field. Returns the new words and whether enter was pressed.
+     */
+    fun typeIntoQuery(query: String, effects: List<Effect>): Pair<String, Boolean> {
+        var text = query
+        var submitted = false
+        for (effect in effects) {
+            when (effect) {
+                is Effect.Commit -> text += effect.text
+                Effect.DeleteBackward -> if (text.isNotEmpty()) {
+                    // Remove one whole character, even when it is stored as two parts (emoji).
+                    text = text.substring(0, text.offsetByCodePoints(text.length, -1))
+                }
+                Effect.Enter -> submitted = true
+            }
+        }
+        return text to submitted
+    }
 
     /**
      * Called after typing with whether the text field wants a capital next

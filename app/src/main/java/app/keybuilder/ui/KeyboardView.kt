@@ -3,9 +3,11 @@ package app.keybuilder.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -51,8 +54,11 @@ import app.keybuilder.model.KeyDef
 import app.keybuilder.model.KeyLook
 import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyboardDef
+import app.keybuilder.model.PANELS
+import app.keybuilder.model.TOOLBAR_HEIGHT_DP
 import app.keybuilder.model.Theme
 import app.keybuilder.model.isDarkColor
+import app.keybuilder.model.panelName
 import app.keybuilder.model.parseHexColor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -80,6 +86,8 @@ fun KeyboardView(
     modifier: Modifier = Modifier,
     selected: KeyPos? = null,
     onKeyAt: ((KeyPos) -> Unit)? = null,
+    showToolbar: Boolean = true,
+    onOpenPanel: (String) -> Unit = {},
 ) {
     val theme = def.theme
     val palette = remember(theme) { Palette(theme) }
@@ -93,6 +101,8 @@ fun KeyboardView(
             .background(palette.background)
             .padding(gap / 2),
     ) {
+        if (def.toolbar && showToolbar) ToolbarStrip(palette, onOpenPanel)
+
         // key(...) throws away per-key state (like "is pressed") when the layer changes.
         key(layer.id) {
             layer.rows.forEachIndexed { rowIndex, row ->
@@ -116,6 +126,38 @@ fun KeyboardView(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The strip above the keys with one button per panel (clipboard, GIF, emoji). */
+@Composable
+private fun ToolbarStrip(palette: Palette, onOpenPanel: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(TOOLBAR_HEIGHT_DP.dp)
+            .padding(horizontal = 3.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (panel in PANELS) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(50))
+                    // A faint tint of the text colour, so it shows on any theme (even see-through keys).
+                    .background(palette.text.copy(alpha = 0.12f))
+                    .clickable { onOpenPanel(panel) }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    text = panelName(panel),
+                    maxLines = 1,
+                    style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
+                )
             }
         }
     }
@@ -231,7 +273,7 @@ private fun RowScope.KeyCell(
 
 /** Icons are drawn with lines instead of font characters, so they look the same on every phone. */
 @Composable
-private fun KeyIcon(action: KeyAction, shift: ShiftState, tint: Color, sizeDp: Float) {
+internal fun KeyIcon(action: KeyAction, shift: ShiftState, tint: Color, sizeDp: Float) {
     Canvas(Modifier.size(sizeDp.dp)) {
         val w = size.width
         val h = size.height

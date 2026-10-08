@@ -76,6 +76,7 @@ object LayoutJson {
             id = root.string("id", "file") ?: "keyboard",
             name = root.string("name", "file") ?: "Keyboard",
             startLayer = startLayer,
+            toolbar = root.boolean("toolbar", "file") ?: true,
             theme = (root.field("theme") as? JsonObject)?.let { parseTheme(it) } ?: Theme(),
             layers = layers,
         )
@@ -154,6 +155,11 @@ object LayoutJson {
             "text" -> KeyAction.Text(
                 obj?.string("text", where) ?: fail(where, "a \"text\" action needs a \"text\" value")
             )
+            "panel" -> {
+                val panel = obj?.string("to", where) ?: fail(where, "a \"panel\" action needs \"to\" with the panel name")
+                if (panel !in PANELS) fail(where, "unknown panel \"$panel\" (use ${PANELS.joinToString()})")
+                KeyAction.OpenPanel(panel)
+            }
             "layer" -> KeyAction.SwitchLayer(
                 obj?.string("to", where) ?: fail(where, "a \"layer\" action needs \"to\" with the layer id")
             )
@@ -201,6 +207,7 @@ object LayoutJson {
         put("id", def.id)
         put("name", def.name)
         put("startLayer", def.startLayer)
+        put("toolbar", def.toolbar)
         put("theme", themeElement(def.theme))
         put("layers", buildJsonArray {
             for (layer in def.layers) {
@@ -249,6 +256,10 @@ object LayoutJson {
         is KeyAction.Text -> buildJsonObject {
             put("type", "text")
             put("text", action.text)
+        }
+        is KeyAction.OpenPanel -> buildJsonObject {
+            put("type", "panel")
+            put("to", action.panel)
         }
         is KeyAction.SwitchLayer -> buildJsonObject {
             put("type", "layer")

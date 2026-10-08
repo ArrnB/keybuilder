@@ -1,6 +1,7 @@
 package app.keybuilder.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -40,15 +41,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
+import app.keybuilder.model.ClipHistory
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 import app.keybuilder.model.uniqueKeyboardId
 import app.keybuilder.model.uniqueName
+import app.keybuilder.store.AppSettings
+import app.keybuilder.store.ClipboardStore
 
 private const val SCREEN_HOME = "home"
 private const val SCREEN_KEYS = "keys"
 private const val SCREEN_STYLE = "style"
 private const val SCREEN_KEYBOARDS = "keyboards"
+private const val SCREEN_EXTRAS = "extras"
+private const val GIPHY_DEVELOPER_SITE = "https://developers.giphy.com/dashboard/"
 
 /**
  * The app you open from the launcher.
@@ -75,6 +81,11 @@ class MainActivity : ComponentActivity() {
                 var keyboards by remember { mutableStateOf(startingKeyboards) }
                 var activeId by remember { mutableStateOf(startingActive) }
                 var screen by rememberSaveable { mutableStateOf(SCREEN_HOME) }
+
+                // Settings for the panels. Read once here, written whenever they change.
+                var giphyKey by remember { mutableStateOf(AppSettings.giphyKey(context)) }
+                var clipboardOn by remember { mutableStateOf(AppSettings.clipboardEnabled(context)) }
+                var clipboardCount by remember { mutableStateOf(0) }
 
                 // The keyboard in use: the one you type with and the one the editors change.
                 val keyboard = keyboards.firstOrNull { it.id == activeId } ?: keyboards.first()
@@ -136,13 +147,49 @@ class MainActivity : ComponentActivity() {
                         onBack = goHome,
                     )
 
+                    SCREEN_EXTRAS -> ExtrasScreen(
+                        keyboard = keyboard,
+                        onChange = replace,
+                        onSave = save,
+                        clipboardOn = clipboardOn,
+                        clipboardCount = clipboardCount,
+                        onClipboardOn = { on ->
+                            AppSettings.setClipboardEnabled(context, on)
+                            clipboardOn = on
+                        },
+                        onEraseClipboard = {
+                            ClipboardStore.save(context, ClipHistory())
+                            clipboardCount = 0
+                        },
+                        giphyKey = giphyKey,
+                        onGiphyKey = { key ->
+                            AppSettings.setGiphyKey(context, key)
+                            giphyKey = key
+                        },
+                        onOpenGiphySite = {
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GIPHY_DEVELOPER_SITE)))
+                            } catch (e: Exception) {
+                                // No browser installed. Nothing sensible to do.
+                            }
+                        },
+                        onBack = goHome,
+                    )
+
                     else -> HomeScreen(
                         status = status,
                         keyboard = keyboard,
                         keyboardCount = keyboards.size,
                         onOpenSettings = { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
                         onPickKeyboard = { inputMethodManager().showInputMethodPicker() },
-                        onOpen = { screen = it },
+                        onOpen = { target ->
+                            // The keyboard may have copied things since the app last looked.
+                            if (target == SCREEN_EXTRAS) {
+                                clipboardOn = AppSettings.clipboardEnabled(context)
+                                clipboardCount = ClipboardStore.load(context).entries.size
+                            }
+                            screen = target
+                        },
                     )
                 }
             }
@@ -210,7 +257,7 @@ private fun HomeScreen(
                 StepCard(
                     title = "1. Turn it on",
                     body = "Android keeps every new keyboard switched off until you allow it. " +
-                        "It shows the same warning for all keyboards. This app has no internet access.",
+                        "It shows the same warning for all keyboards. This app only goes online for GIF search.",
                     done = status.enabled,
                     buttonText = "Open keyboard settings",
                     buttonEnabled = true,
@@ -251,6 +298,7 @@ private fun HomeScreen(
             OutlinedButton(onClick = { onOpen(SCREEN_KEYBOARDS) }) {
                 Text("My keyboards ($keyboardCount)")
             }
+            OutlinedButton(onClick = { onOpen(SCREEN_EXTRAS) }) { Text("Clipboard and GIFs") }
             Text(
                 "Changes are saved as you make them, and the real keyboard shows them the next time it opens.",
                 style = MaterialTheme.typography.bodySmall,

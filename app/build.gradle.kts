@@ -14,8 +14,8 @@ android {
         // 34 on purpose: targeting 35 forces edge-to-edge drawing, which needs
         // extra inset handling in the keyboard window. Revisit before publishing.
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     buildTypes {
@@ -44,6 +44,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.savedstate)
     implementation(libs.kotlinx.serialization.json)
+    // FileProvider and the "send a picture from the keyboard" helpers.
+    implementation(libs.androidx.core.ktx)
+    // Loads pictures and plays GIFs in the panels.
+    implementation(libs.coil.compose)
+    implementation(libs.coil.gif)
 
     testImplementation(libs.junit)
 }
