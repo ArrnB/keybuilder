@@ -48,6 +48,7 @@ import app.keybuilder.model.uniqueKeyboardId
 import app.keybuilder.model.uniqueName
 import app.keybuilder.store.AppSettings
 import app.keybuilder.store.ClipboardStore
+import app.keybuilder.store.WordStore
 
 private const val SCREEN_HOME = "home"
 private const val SCREEN_KEYS = "keys"
@@ -87,6 +88,7 @@ class MainActivity : ComponentActivity() {
                 var clipboardOn by remember { mutableStateOf(AppSettings.clipboardEnabled(context)) }
                 var clipboardCount by remember { mutableStateOf(0) }
                 var typing by remember { mutableStateOf(AppSettings.typing(context)) }
+                var learnedCount by remember { mutableStateOf(0) }
 
                 // The keyboard in use: the one you type with and the one the editors change.
                 val keyboard = keyboards.firstOrNull { it.id == activeId } ?: keyboards.first()
@@ -170,6 +172,11 @@ class MainActivity : ComponentActivity() {
                             AppSettings.setTyping(context, changed)
                             typing = changed
                         },
+                        learnedCount = learnedCount,
+                        onForgetWords = {
+                            WordStore.forgetEverything(context)
+                            learnedCount = 0
+                        },
                         giphyKey = giphyKey,
                         onGiphyKey = { key ->
                             AppSettings.setGiphyKey(context, key)
@@ -196,6 +203,9 @@ class MainActivity : ComponentActivity() {
                             if (target == SCREEN_EXTRAS) {
                                 clipboardOn = AppSettings.clipboardEnabled(context)
                                 clipboardCount = ClipboardStore.load(context).entries.count { !it.pinned }
+                                // The gear on the keyboard changes these too.
+                                typing = AppSettings.typing(context)
+                                learnedCount = WordStore.learnedCount(context)
                             }
                             screen = target
                         },

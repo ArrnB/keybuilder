@@ -56,6 +56,8 @@ fun ExtrasScreen(
     onEraseClipboard: () -> Unit,
     typing: TypingSettings,
     onTyping: (TypingSettings) -> Unit,
+    learnedCount: Int,
+    onForgetWords: () -> Unit,
     giphyKey: String,
     onGiphyKey: (String) -> Unit,
     onOpenGiphySite: () -> Unit,
@@ -63,6 +65,7 @@ fun ExtrasScreen(
 ) {
     var editingKey by remember { mutableStateOf(false) }
     var confirmErase by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
 
     BackHandler(onBack = onBack)
     AutoSave(keyboard, onSave)
@@ -106,9 +109,59 @@ fun ExtrasScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
 
+                SectionTitle("Suggestions and autocorrect")
+                Text(
+                    "English and Hinglish. While you type, the strip above the keys offers words: tap " +
+                        "one to use it. When you finish a word, an obvious slip (teh, dont, recieve) is " +
+                        "fixed by itself. Press backspace straight after a fix to get your own word " +
+                        "back; the keyboard then leaves that word alone for good. Hinglish words are " +
+                        "suggested but never changed, because Hinglish has no one right spelling.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OnOffRow(
+                    label = "Word suggestions",
+                    on = typing.suggestions,
+                    onChange = { onTyping(typing.copy(suggestions = it)) },
+                )
+                OnOffRow(
+                    label = "Fix slips automatically",
+                    on = typing.autocorrect,
+                    onChange = { onTyping(typing.copy(autocorrect = it)) },
+                )
+                OnOffRow(
+                    label = "Learn the words I type",
+                    on = typing.learn,
+                    onChange = { onTyping(typing.copy(learn = it)) },
+                )
+                Text(
+                    "Learning is how your own words, names and Hinglish spellings get suggested. What " +
+                        "is learned is kept in one file on this phone and is never sent anywhere; the " +
+                        "keyboard has no way to send it. Nothing is read or learned in password boxes, " +
+                        "in boxes for e-mail addresses and links, or in a browser's private mode.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = { confirmForget = true }, enabled = learnedCount > 0) {
+                    Text("Forget learned words ($learnedCount)")
+                }
+
+                SectionTitle("Last copied thing")
+                Text(
+                    "Shows whatever you copied last on the strip, next to the gear. Tap it to paste; " +
+                        "hold it to hide it until you copy something else. It works without the " +
+                        "clipboard history (pictures need the history on). Passwords copied from a " +
+                        "password manager are shown as dots.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OnOffRow(
+                    label = "Show it on the strip",
+                    on = typing.quickClip,
+                    onChange = { onTyping(typing.copy(quickClip = it)) },
+                )
+
                 SectionTitle("Shortcut strip")
                 Text(
-                    "The strip above the keys with the Clipboard, GIF and Emoji buttons. This setting " +
+                    "The strip above the keys with the Clipboard, GIF and Emoji buttons. With the " +
+                        "buttons hidden the strip still appears for suggestions, if those are on. This setting " +
                         "belongs to the keyboard in use (${keyboard.name}). You can also put a key that " +
                         "opens a panel anywhere: Edit keys, select a key, What it does, Opens a panel.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -186,6 +239,29 @@ fun ExtrasScreen(
             onDone = { key ->
                 onGiphyKey(key.trim())
                 editingKey = false
+            },
+        )
+    }
+
+    if (confirmForget) {
+        AlertDialog(
+            onDismissRequest = { confirmForget = false },
+            title = { Text("Forget learned words?") },
+            text = {
+                Text(
+                    "The $learnedCount words the keyboard picked up from your typing are deleted, along " +
+                        "with the words you told it to leave alone. The built-in word list stays. " +
+                        "This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onForgetWords()
+                    confirmForget = false
+                }) { Text("Forget") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmForget = false }) { Text("Cancel") }
             },
         )
     }

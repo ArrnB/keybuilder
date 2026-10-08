@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import app.keybuilder.model.ClipEntry
 import app.keybuilder.model.ClipHistory
 import app.keybuilder.store.AppSettings
+import app.keybuilder.model.quickClipLabel
 import app.keybuilder.store.ClipboardStore
 import java.io.File
 import kotlin.concurrent.thread
@@ -31,6 +32,20 @@ class ClipboardController(private val context: Context) {
     var enabled by mutableStateOf(false)
         private set
 
+    /**
+     * The most recently copied thing, for the button next to the gear, or null if there is
+     * nothing to show. This is read straight from the phone's clipboard each time; it is not
+     * stored by the keyboard, and it works with the clipboard history switched off.
+     */
+    var latest by mutableStateOf<QuickClip?>(null)
+        private set
+
+    /** What the button shows ([label]) and what tapping it pastes: [text], or the picture in [entry]. */
+    class QuickClip(val label: String, val text: String?, val entry: ClipEntry?)
+
+    /** What the user hid by holding the button. It stays hidden until something else is copied. */
+    private var dismissed: String? = null
+
     private val manager: ClipboardManager = context.getSystemService(ClipboardManager::class.java)
     private val mainThread = Handler(Looper.getMainLooper())
     private val listener = ClipboardManager.OnPrimaryClipChangedListener { capture() }
@@ -42,6 +57,44 @@ class ClipboardController(private val context: Context) {
 
     fun stop() {
         manager.removePrimaryClipChangedListener(listener)
+    }
+
+    /** Looks at the phone's clipboard and updates [latest]. Nothing is saved. */
+    fun peek() {
+        latest = try {
+            readLatest()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read the clipboard", e)
+            null
+        }
+    }
+
+    /** Hides the button until something new is copied. */
+    fun dismissLatest() {
+        dismissed = latest?.let { it.text ?: it.entry?.imageFile }
+        latest = null
+    }
+
+    private fun readLatest(): QuickClip? {
+        val clip = manager.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        val description = clip.description
+        val item = clip.getItemAt(0)
+        val isImage = item.uri != null &&
+            (0 until description.mimeTypeCount).any { description.getMimeType(it).startsWith("image/") }
+        if (isImage) {
+            // A picture can only be pasted from our own saved copy, which exists when the history is on.
+            val saved = history.entries.firstOrNull()?.takeIf { it.isImage } ?: return null
+            // Our newest saved picture must be this copy, not an older one (entry ids are save times).
+            if (saved.id < description.timestamp - 2000) return null
+            if (saved.imageFile == dismissed) return null
+            return QuickClip("Picture", text = null, entry = saved)
+        }
+        val text = item.coerceToText(context)?.toString().orEmpty()
+        if (text.isBlank() || text.length > ClipHistory.MAX_TEXT_LENGTH || text == dismissed) return null
+        // What a password manager copies can be pasted with one tap, but is not shown on screen.
+        val secret = description.extras?.getBoolean(SENSITIVE_FLAG, false) == true
+        return QuickClip(if (secret) "•••••" else quickClipLabel(text), text = text, entry = null)
     }
 
     /** Re-reads the setting and the saved list, in case the app changed them. */
@@ -75,6 +128,8 @@ class ClipboardController(private val context: Context) {
     private fun capture() {
         // The app may have switched the history off or erased it since we last looked.
         refresh()
+        dismissed = null // something new was copied
+        peek()
         if (!enabled) return
         try {
             val clip = manager.primaryClip ?: return
@@ -124,6 +179,7 @@ class ClipboardController(private val context: Context) {
                     } else {
                         part.delete()
                     }
+                    peek() // the picture can be offered on the strip now that we have a copy
                 }
             } catch (e: Exception) {
                 part.delete()

@@ -52,6 +52,7 @@ import app.keybuilder.model.PANELS
 import app.keybuilder.model.addRecentEmoji
 import app.keybuilder.store.AppSettings
 import app.keybuilder.store.TypingSettings
+import app.keybuilder.suggest.Suggestion
 import app.keybuilder.ui.ClipboardPanel
 import app.keybuilder.ui.EmojiPanel
 import app.keybuilder.ui.GifPanel
@@ -61,6 +62,8 @@ import app.keybuilder.ui.LocalStripIcons
 import app.keybuilder.ui.MainActivity
 import app.keybuilder.ui.PanelSize
 import app.keybuilder.ui.SettingsPanel
+import app.keybuilder.ui.StripExtras
+import app.keybuilder.ui.resolved
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -97,6 +100,9 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private lateinit var clipboard: ClipboardController
     private lateinit var gif: GifController
     private lateinit var sticker: GifController
+
+    /** Word suggestions, autocorrect and learning. */
+    private lateinit var suggest: SuggestController
 
     /** The Compose view that draws the keyboard. Needed to measure it for onComputeInsets. */
     private var composeView: ComposeView? = null
@@ -140,6 +146,9 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         gif = GifController(this, lifecycleScope)
         sticker = GifController(this, lifecycleScope, stickers = true)
         gif.tidyCache()
+        suggest = SuggestController(this)
+        // The word list is read in the background; suggestions start once it is in.
+        suggest.load { suggest.refresh(currentInputConnection) }
 
         reloadIfChanged()
     }
@@ -166,7 +175,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
         return ComposeView(this).also { composeView = it }.apply {
             setContent {
-                val def = keyboard
+                // resolved(): with the phone's own colours filled in, if the theme asks for them.
+                val def = keyboard?.resolved()
                 if (def != null) {
                     // Tells the strip, wherever it is drawn, whether to show symbols or words.
                     CompositionLocalProvider(LocalStripIcons provides typing.stripIcons) {
@@ -181,7 +191,8 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     @Composable
     private fun KeyboardOrPanel(def: KeyboardDef) {
         // Panels are as tall as the keyboard so nothing jumps, but never too short to be useful.
-        val height = KeyboardEngine.heightDp(def, state).coerceAtLeast(MIN_PANEL_HEIGHT_DP)
+        val height = KeyboardEngine.heightDp(def, state, strip = def.toolbar || typing.suggestions)
+            .coerceAtLeast(MIN_PANEL_HEIGHT_DP)
         // A panel can be dragged taller, up to most of the screen.
         val metrics = resources.displayMetrics
         val maxExtra = (metrics.heightPixels / metrics.density * MAX_PANEL_SCREEN_SHARE - height).coerceAtLeast(0f)
@@ -238,6 +249,16 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             onKeyDown = { keyTouched() },
             showPopups = typing.popups,
             onCursor = { moveCursor(it) },
+            strip = StripExtras(
+                suggestions = if (suggest.hidden) emptyList() else suggest.suggestions,
+                onSuggestion = { pickSuggestion(it) },
+                onShowTools = { suggest.showTools() },
+                clip = if (typing.quickClip) clipboard.latest?.label else null,
+                onClip = { pasteLatest() },
+                onClipHeld = { clipboard.dismissLatest() },
+                // With suggestions on, the strip shows even on a keyboard without shortcut buttons.
+                always = typing.suggestions,
+            ),
         )
     }
 
@@ -288,6 +309,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 onSettings = { changed ->
                     typing = changed
                     AppSettings.setTyping(this, changed)
+                    suggest.settingsChanged(changed, currentInputConnection)
                 },
                 onClipboardOn = { on -> clipboard.setHistoryOn(on) },
                 onOpenApp = { openApp() },
@@ -328,6 +350,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 // Bring the keys back, but send what they type to the search words.
                 state = state.copy(panel = null)
                 source.typing = true
+                suggest.clear()
             },
             onQuickSearch = { source.search(it) },
             onPick = { sendGif(it, source) },
@@ -389,15 +412,36 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             sticker.typing = false
         }
         clipboard.refresh()
+        clipboard.peek()
         syncAutoCaps()
+        // Decides what this text box allows. In a password box: nothing, and nothing is read from it.
+        suggest.startField(info, typing, currentInputConnection)
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        suggest.clear()
+        suggest.save()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
     }
 
+    /** Android calls this whenever the cursor moves or text is selected, whoever caused it. */
+    override fun onUpdateSelection(
+        oldSelStart: Int,
+        oldSelEnd: Int,
+        newSelStart: Int,
+        newSelEnd: Int,
+        candidatesStart: Int,
+        candidatesEnd: Int,
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (searching() == null && state.panel == null) {
+            suggest.selectionChanged(newSelStart, newSelEnd, currentInputConnection)
+        }
+    }
+
     override fun onDestroy() {
+        suggest.save()
         clipboard.stop()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
@@ -445,15 +489,25 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             when (effect) {
                 is Effect.Commit -> commit(connection, effect.text)
                 Effect.DeleteBackward -> deleteBackward(connection)
-                Effect.Enter -> sendEnter(connection)
+                Effect.Enter -> {
+                    suggest.beforeTyping(connection, "\n") // the last word is learned, never corrected
+                    sendEnter(connection)
+                }
                 is Effect.MoveCursor -> moveCursor(effect.direction)
                 is Effect.Command -> runCommand(connection, effect.command)
             }
         }
         if (result.effects.isNotEmpty() || result.state.layerId != before.layerId) syncAutoCaps()
+        if (result.effects.any { it is Effect.Command }) {
+            suggest.textChangedOtherwise(connection) // a paste or a cut
+        } else if (result.effects.isNotEmpty()) {
+            suggest.refresh(connection)
+        }
     }
 
     private fun commit(connection: InputConnection, text: String) {
+        // If this ends a word (a space, a comma...), the word is corrected and learned first.
+        suggest.beforeTyping(connection, text)
         if (text == " " && typing.doubleSpace) {
             // "word" + space + space becomes "word. "
             val before = connection.getTextBeforeCursor(2, 0)?.toString().orEmpty()
@@ -508,7 +562,39 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         AppSettings.setRecentEmoji(this, recentEmoji)
     }
 
+    /** A suggestion on the strip was tapped. */
+    private fun pickSuggestion(suggestion: Suggestion) {
+        val connection = currentInputConnection ?: return
+        keyTouched()
+        suggest.pick(connection, suggestion)
+        syncAutoCaps()
+    }
+
+    /** The "last copied thing" button on the strip was tapped: paste it. */
+    private fun pasteLatest() {
+        val clip = clipboard.latest ?: return
+        keyTouched()
+        val text = clip.text
+        val entry = clip.entry
+        if (text != null) {
+            currentInputConnection?.commitText(text, 1)
+        } else if (entry != null) {
+            val file = clipboard.imageFile(entry)
+            val sent = file != null && file.exists() && sendPicture(file, entry.mime ?: "image/png", "Copied picture")
+            if (!sent) {
+                // Say why nothing happened, in the place that has room to say it.
+                showPanel("clipboard")
+                clipboardMessage = "This text box does not accept pictures."
+                return
+            }
+        }
+        suggest.textChangedOtherwise(currentInputConnection)
+        syncAutoCaps()
+    }
+
     private fun deleteBackward(connection: InputConnection) {
+        // Backspace right after an automatic correction takes the correction back instead of deleting.
+        if (suggest.undoCorrection(connection)) return
         val selection = connection.getSelectedText(0)
         if (!selection.isNullOrEmpty()) {
             connection.commitText("", 1) // replace the selection with nothing
@@ -547,6 +633,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         gif.typing = false
         sticker.typing = false
         state = state.copy(panel = panel)
+        if (panel == null) suggest.textChangedOtherwise(currentInputConnection) else suggest.clear()
         when (panel) {
             "clipboard" -> {
                 clipboardMessage = null

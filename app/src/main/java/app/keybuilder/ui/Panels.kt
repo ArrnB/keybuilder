@@ -70,7 +70,11 @@ import kotlin.math.abs
 
 /** Panel colours worked out from the keyboard theme. */
 internal class PanelColors(theme: Theme) {
-    val background = theme.background.toColorOrNull() ?: Color(0xFF1B1D22)
+    /** The same background as the keys: one colour or a fade, as see-through as the theme says. */
+    val background = backgroundBrush(theme)
+
+    /** The colour at the top of that background, for the thin search bar above the keys. */
+    val backgroundTop = backgroundTopColor(theme)
     val text = theme.textColor.toColorOrNull() ?: Color.White
     val accent = theme.accentColor.toColorOrNull() ?: Color(0xFF4C8DFF)
     val accentText = theme.accentTextColor.toColorOrNull() ?: Color.White
@@ -462,7 +466,7 @@ fun GifSearchBar(theme: Theme, query: String, onCancel: () -> Unit, onSearch: ()
         modifier = Modifier
             .fillMaxWidth()
             .height(TOOLBAR_HEIGHT_DP.dp)
-            .background(colors.background)
+            .background(colors.backgroundTop)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -544,6 +548,21 @@ fun SettingsPanel(
             item {
                 PanelToggle(colors, "Symbols instead of words on the top bar", settings.stripIcons) {
                     onSettings(settings.copy(stripIcons = it))
+                }
+            }
+            item {
+                PanelToggle(colors, "Word suggestions", settings.suggestions) {
+                    onSettings(settings.copy(suggestions = it))
+                }
+            }
+            item {
+                PanelToggle(colors, "Fix slips automatically (backspace undoes one)", settings.autocorrect) {
+                    onSettings(settings.copy(autocorrect = it))
+                }
+            }
+            item {
+                PanelToggle(colors, "Last copied thing next to the gear", settings.quickClip) {
+                    onSettings(settings.copy(quickClip = it))
                 }
             }
             item { PanelToggle(colors, "Clipboard history", clipboardOn, onClipboardOn) }

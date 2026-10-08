@@ -3,13 +3,15 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 7** makes dragging a panel smooth, adds a sticker panel, and puts "Replace this key"
-and "Swap with another" at the top of the key editor so any key can become any other key or
-trade places with one.
+**Phase 8** adds word suggestions and automatic autocorrect for English and Hinglish, with
+learning that stays on the phone; a button on the strip that pastes the last thing you copied;
+and three new looks for the keyboard: see-through, a two-colour gradient, and colours taken
+from the phone.
 Earlier phases: 1 the working keyboard, 2 the style editor, 3 the layout editor and several
 saved keyboards, 4 the strip with clipboard, GIF and emoji panels, 5 long-press choices,
 pop-ups, arrow and copy/paste keys, vibration and number boxes, 6 built-in long-press
-choices, space-bar cursor steering, resizable panels, the settings gear and strip symbols.
+choices, space-bar cursor steering, resizable panels, the settings gear and strip symbols,
+7 smooth panel dragging, stickers, and replacing or swapping any key.
 
 ## Run it
 
@@ -40,7 +42,37 @@ Keyboard
 - Number boxes (phone, amount, PIN, date) open the layer you choose
 - Two spaces after a word type a full stop
 
+Suggestions and autocorrect (English and Hinglish)
+- While you type, the strip offers up to three words: completions of what you have typed and
+  words it could be a slip for. Tap one to use it; a space is added for you
+- After a word, the strip guesses the next one from what you usually type after it
+- When you finish a word with a space or punctuation, an obvious slip is fixed by itself:
+  `teh` becomes `the`, `dont` becomes `don't`, `recieve` becomes `receive`, a lone `i` becomes `I`.
+  The word that will be put in is shown in bold beforehand, with what you typed in quotes
+  beside it: tap the quoted word to keep your own spelling
+- **Backspace straight after a fix puts your own word back**, and the keyboard never touches
+  that word again
+- Hinglish is suggested but never auto-changed. It has no single correct spelling (`nahi`,
+  `nhi`, `nahin`), so "fixing" it would mostly break it. Inside a Hinglish sentence nothing is
+  auto-changed at all
+- Also left alone: names and anything else with a capital in mid-sentence, chat shorthand
+  (`idk`, `hbd`), stretched words (`sooo`, `hahaha`), words with ordinary endings, and
+  anything inside an e-mail address or a link
+- **Learning:** words you type twice become your own: they are suggested, their slips are
+  fixed towards them, and they are never corrected. It also learns which word you type after
+  which, and how you capitalise names. All of it is one file on the phone
+- **Never in password boxes.** There, and in boxes for e-mail addresses, links and numbers, in
+  boxes that ask for no suggestions, the keyboard does not read the text at all. In a
+  browser's private mode it suggests but learns nothing
+- Each of the three (suggestions, automatic fixing, learning) has its own switch, and
+  **Forget learned words** erases everything it picked up
+
 Shortcut strip and panels
+- **The last thing you copied** sits on the strip next to the gear. Tap it to paste; hold it to
+  hide it until you copy something else. It works with the clipboard history off (a copied
+  picture needs the history on), and a password copied from a password manager shows as dots
+- While suggestions are showing they take the place of the panel buttons; the small arrow at
+  the left brings the buttons back, and the last-copied button shrinks to a symbol
 - A strip above the keys with **Clipboard**, **GIF**, **Stickers** and **Emoji** buttons and a
   settings gear at the right end; each opens a panel where the keys were, and **ABC** brings
   the keys back. The buttons can show small symbols instead of words, and scroll sideways if
@@ -91,8 +123,17 @@ Several keyboards (home screen > **My keyboards**)
 - The Keys and Style screens always edit the keyboard that is in use
 
 Style editor (home screen > **Edit style**)
-- Eight ready-made looks; choosing one changes colours and key shape but keeps your sizes
+- Eleven ready-made looks, three of them new: **Dusk** and **Aurora** (gradients) and **Glass**
+  (see-through). Choosing one changes colours, background and key shape but keeps your sizes
 - Every colour, with a picker: sliders, quick choices, or type a colour code
+- **Background opacity** and **key opacity**, each from 0 to 100%. Below 100% the keyboard is
+  see-through and whatever the app has behind it shows through and tints it
+- **Gradient:** a second background colour, fading top to bottom, side to side or corner to
+  corner. The panels use the same background as the keys
+- **Match the phone:** the keyboard takes its colours from the phone instead of from you. On
+  Android 12 and later these are the colours Android makes from your wallpaper; on any
+  version it switches between light and dark with the phone. Your own colours are kept for
+  switching back
 - Corner roundness, border thickness, key height, gap, letter size
 - Letters: plain, serif or typewriter, bold, and whether keys show their corner hint
 - Single keys: tap a key in the preview and give it its own background, letter colour or size
@@ -100,17 +141,44 @@ Style editor (home screen > **Edit style**)
 
 Everything is saved automatically, and the real keyboard shows changes the next time it opens.
 
-Typing settings (home screen > **Settings**): vibration, the letter pop-up, and the
-double-space full stop can each be switched off.
+Typing settings (home screen > **Settings**): vibration, the letter pop-up, the double-space
+full stop, suggestions, automatic fixing, learning and the last-copied button can each be
+switched off. Most of them are also behind the gear on the keyboard itself.
 
 Not in yet: dragging keys with a finger in the editor (keys move with buttons for now),
-emoji search and skin tones, word suggestions and autocorrect.
+emoji search and skin tones.
+
+### "Change colour according to the background": what a keyboard can and cannot do
+
+Android does not let a keyboard see the app it is typing into, so it cannot read an app's
+colours and copy them. Two things come close, and both are in:
+
+1. **Match the phone** follows the phone's own colours and light or dark mode, which is what
+   most apps follow too.
+2. **Opacity below 100%** lets the app behind show through, so the keyboard really does take
+   on the colour of whatever it is sitting on.
+
+### How good is the autocorrect?
+
+It was measured rather than guessed. Against a list of 32,000 common English misspellings it
+fixes 58% correctly by itself, changes 1% into the wrong word, and leaves the rest alone; for
+95% the right word is among the three suggestions. Of the 28,000 commonest English words it
+wrongly changes under 0.2%. Its weak spot is names and rare words typed without a capital that
+no list knows: about 6% of those get changed, which is what backspace-to-undo and learning are
+for. The settings were chosen to keep wrong changes low at the cost of fixing fewer slips.
+
+Nothing was measured for Hinglish, because there is no list of Hinglish misspellings to
+measure against; that is also why Hinglish is only ever suggested.
+
+Slips are judged by the usual QWERTY arrangement (a neighbouring key counts as a likely
+slip). On a keyboard you have rearranged heavily, that part is less accurate.
 
 ## Where things are
 
 ```
 app/src/main/
   assets/layouts/qwerty.json     the built-in keyboard, as data
+  assets/words/words.txt         the word list: 51,000 words, each with a score and a language
   java/app/keybuilder/
     model/KeyboardModel.kt       what a keyboard is: layers, rows, keys, theme
     model/LayoutJson.kt          reads and writes layout files, with readable error messages
@@ -124,13 +192,21 @@ app/src/main/
     model/BuiltInChoices.kt      the long-press choices keys get without any setup
     model/LayoutRepository.kt    the saved keyboards and which one is in use
     engine/KeyboardEngine.kt     the logic: shift, layers, panels, what a tap types
+    suggest/SuggestionEngine.kt  suggestions, autocorrect and learning: every rule is here
+    suggest/Typo.kt              how likely one word is a slip for another
+    suggest/Lexicon.kt           the built-in word list in memory
+    suggest/UserWords.kt         what the keyboard has learned from you, and its file format
+    suggest/FieldRules.kt        which text boxes allow what (the password-box rule)
     net/Http.kt                  the only code that goes online
-    store/AppSettings.kt         the GIPHY key and the clipboard on/off setting
+    store/AppSettings.kt         the GIPHY key and the on/off settings
     store/ClipboardStore.kt      the clipboard history on disk
+    store/WordStore.kt           loads the word list, saves the learned words
     ime/KeyBuilderIme.kt         the Android keyboard service
+    ime/SuggestController.kt     reads the words before the cursor and types fixes and suggestions
     ime/ClipboardController.kt   watches the phone's clipboard
     ime/GifController.kt         runs GIF searches and downloads
     ui/KeyboardView.kt           draws a keyboard and the strip (shared by the keyboard and the app)
+    ui/PhoneColors.kt            reads the phone's colours, paints gradient backgrounds
     ui/Panels.kt                 the clipboard, GIF, emoji and settings panels, and their drag handle
     ui/LayoutScreen.kt           the layout editor
     ui/StyleScreen.kt            the style editor
@@ -140,11 +216,12 @@ app/src/main/
     ui/SymbolPickerDialog.kt     the letter and symbol catalogue
     ui/Widgets.kt                shared pieces: pills, rows, the text pop-up, auto-save
     ui/MainActivity.kt           home screen, navigation, and all saving
-app/src/test/                    tests for the model, the engine and the panel logic
+app/src/test/                    tests for the model, the engine, suggestions and the panel logic
+tools/build_words.py             makes words.txt (only needed if you want a different list)
 ```
 
-`model` (except LayoutRepository), `engine` and `net` contain no Android code, so their tests run on
-your computer in a second: right-click `app/src/test` > Run tests, or `./gradlew test`.
+`model` (except LayoutRepository), `engine`, `suggest` and `net` contain no Android code, so their
+tests run on your computer in a second: right-click `app/src/test` > Run tests, or `./gradlew test`.
 
 The screens hold no data of their own. `MainActivity` holds the keyboards, each screen shows
 one and hands back a changed copy, and the rules for every change live in `LayoutEdits.kt`
@@ -206,7 +283,10 @@ boxes that only take numbers. Leave it out to always open the start layer.
 `textColor`, `accentTextColor`, `borderColor` (colours as `#RRGGBB` or `#AARRGGBB`), and
 `borderWidthDp`, `cornerRadiusDp`, `keyHeightDp`, `keyGapDp`, `fontSizeSp` (numbers),
 `fontFamily` (`sans`, `serif` or `mono`), `bold` and `hints` (`true` or `false`; hints are
-the small long-press characters in key corners).
+the small long-press characters in key corners). For the background: `backgroundOpacity` and
+`keyOpacity` (0 to 1), `backgroundEnd` (a second colour, which makes the background a
+gradient), `gradient` (`down`, `across` or `diagonal`), and `colors` (`own`, or `phone` to
+take the colours from the phone).
 
 Shift only applies on layers that contain a shift key.
 
@@ -232,10 +312,36 @@ the Tenor API to outside developers on 30 June 2026). To switch provider later, 
 ## Privacy
 
 - What you type in other apps never leaves the phone.
+- Suggestions and autocorrect work entirely on the phone, from a word list inside the app.
+  There is no AI service and no server involved. What the keyboard learns is one text file,
+  `learned_words.txt`, in the app's private storage; you can read its format in
+  `suggest/UserWords.kt` and erase it from **Settings**. The code that learns has no access
+  to the code that goes online.
+- In password boxes the keyboard does not read, suggest, correct or learn. The rule is
+  `suggest/FieldRules.kt` and it has its own tests.
+- The last-copied button reads the phone's clipboard when you copy something or open the
+  keyboard, and shows it. It stores nothing.
 - The only things sent over the internet are the search words you type **in the GIF panel**
   (to GIPHY, with your key) and the request for the GIF you tap. All of it is in `net/Http.kt`.
 - The clipboard history is kept in the app's private storage and is never sent anywhere. It is
   off until you turn it on, and it can be erased from **Settings**.
+
+## The word list
+
+`assets/words/words.txt` has one word per line with a score (how common it is) and a language:
+English, Hinglish or both. It is made by `tools/build_words.py` from three sources:
+
+- English words and their frequencies from the **wordfreq** project (Robyn Speer and others).
+  Rare words are only included if they are also in Webster's Second International word list
+  ("web2", public domain), which keeps misspellings out.
+- A hand-written list of about 800 everyday Hinglish words and short forms.
+- wordfreq's Hindi list, turned into English letters by rules in the script. These spellings
+  are guesses, so they score lower; your own spellings are learned as you type.
+
+**Licence note:** wordfreq's data is published under Creative Commons Attribution-ShareAlike
+4.0, and `words.txt` is derived from it. If you publish the app, credit wordfreq and keep the
+word list file under that same licence. That concerns the list, not your code. Check the
+terms yourself before releasing; this note is not legal advice.
 
 ## Adding your own characters
 
@@ -245,26 +351,46 @@ character or a whole group and it appears in the app.
 
 ## How it was checked
 
-Phases 1 to 6 have been built and run. For phase 7, everything without Android code was
-compiled and its 114 tests passed, including replacing and swapping keys (every special key
-in every kind of place, with saving and loading), the sticker addresses, and the arithmetic
-that tells Android where a dragged panel's edges are. The Android parts were written without
-access to the Android build tools, so **phase 7 has not been built or run yet**.
+Phases 1 to 6 have been built and run on a phone. Phase 7 (smooth panel dragging, stickers,
+replacing keys) and this phase have not been confirmed on a phone yet.
 
-The smooth drag is the part to watch. Before, the keyboard's window was resized for every
-finger movement, which is slow and made the app behind it rearrange itself each time. Now the
-window is made as tall as a panel can get once, when a panel opens, and dragging only changes
-how much of it is drawn; Android is told where the panel really is so the app underneath
-stays put and stays touchable above the panel. That uses a part of Android that could not be
-tried here. If, with a panel open, the app above it cannot be touched, jumps upward, or the
-panel leaves an empty band, say which and it can be corrected.
+For phase 8, everything without Android code was compiled with warnings treated as errors
+and its 166 tests passed (114 before this phase). The new tests cover suggestions,
+autocorrect, undoing a correction, learning and its file, the password-box rule, the
+see-through, gradient and phone-colour settings and their saving and loading, and the
+last-copied label. The suggestion tests run against the real 51,000-word list. The
+autocorrect figures above come from a separate measurement, not from the tests.
+
+The Android parts were written without access to the Android build tools, so **phase 8 has
+not been built or run yet**. The parts that talk to Android without drawing anything (reading
+the text before the cursor, the clipboard, saving files) were type-checked against small
+stand-ins for the Android classes; the drawing code was only checked for syntax.
+
+Things that could only be reasoned about, not tried, and are worth watching:
+
+- **See-through backgrounds.** They rely on Android showing the app through the keyboard's
+  window. What exactly shows depends on the app: usually its plain background colour, in
+  some apps its content, in a few just black.
+- **Match the phone** on Android 12 and later reads Android's wallpaper colours. Whether the
+  keyboard picks up a wallpaper change straight away or the next time it opens was not tried.
+- **Suggestions in apps that report the cursor oddly.** The keyboard re-reads the text before
+  the cursor after every key, so it should stay in step, but some apps (certain browsers and
+  games) answer slowly or not at all; there suggestions may lag or stay empty.
+- **Reading the word list** takes roughly a third of a second on a computer and will take
+  longer on a phone. It happens in the background once, when the keyboard starts; until it
+  is done there are simply no suggestions.
+
+The panel dragging from phase 7 is unchanged, and its note still applies: if, with a panel
+open, the app above it cannot be touched, jumps upward, or the panel leaves an empty band,
+say which and it can be corrected.
 
 ## Roadmap
 
-8. **Word suggestions and autocorrect:** under discussion; see the notes from the conversation
-9. **Editor extras:** dragging keys with a finger
-10. **Panel extras:** emoji search and skin tones
-11. **Polish:** key sounds, landscape tuning, light and dark variants of a keyboard
+9. **Suggestion extras:** removing a single learned word from the strip, emoji suggestions,
+   slips judged by your own key arrangement instead of QWERTY
+10. **Editor extras:** dragging keys with a finger
+11. **Panel extras:** emoji search and skin tones
+12. **Polish:** key sounds, landscape tuning
 
 Decided against: sharing keyboards as files, and swipe (glide) typing.
 

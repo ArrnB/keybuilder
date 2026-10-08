@@ -154,10 +154,30 @@ data class Theme(
     val bold: Boolean = false,
     /** Show a key's first long-press choice as a small character in its corner. */
     val hints: Boolean = true,
+    /** A second background colour. With one, the background fades from [background] into it. */
+    val backgroundEnd: String? = null,
+    /** One of GRADIENT_DIRECTIONS: which way that fade runs. */
+    val gradientDirection: String = "down",
+    /** 0..1: how solid the background is. Below 1, whatever the app has behind the keyboard shows through. */
+    val backgroundOpacity: Float = 1f,
+    /** 0..1: how solid the keys are. */
+    val keyOpacity: Float = 1f,
+    /** One of COLOR_SOURCES: use the colours above, or take them from the phone. */
+    val colorSource: String = "own",
 )
 
 /** The letter styles a theme can use, in the order they are offered. */
 val FONT_FAMILIES = listOf("sans", "serif", "mono")
+
+/** Which way a two-colour background fades: top to bottom, side to side, or corner to corner. */
+val GRADIENT_DIRECTIONS = listOf("down", "across", "diagonal")
+
+/**
+ * Where a theme's colours come from. "own" = the colours saved in the theme. "phone" = the
+ * phone's own colours (taken from the wallpaper on Android 12 and later), light or dark to
+ * match the phone. The saved colours are kept for switching back.
+ */
+val COLOR_SOURCES = listOf("own", "phone")
 
 /**
  * Turns "#RRGGBB" or "#AARRGGBB" into an ARGB number, or null if the text is not a colour.

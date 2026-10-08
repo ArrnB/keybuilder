@@ -135,6 +135,39 @@ enum class ThemeSize(val label: String, val min: Float, val max: Float, val step
     }
 }
 
+// ------------------------------------------------------------------ background
+
+/** Opacity is shown and set as a percentage in steps of 5. */
+fun opacityPercent(opacity: Float): Int = ((opacity.coerceIn(0f, 1f) * 20f).roundToInt() * 5)
+
+fun Theme.withBackgroundOpacity(percent: Float): Theme = copy(backgroundOpacity = opacityPercent(percent / 100f) / 100f)
+
+fun Theme.withKeyOpacity(percent: Float): Theme = copy(keyOpacity = opacityPercent(percent / 100f) / 100f)
+
+/**
+ * Turns the two-colour background on or off. Switching it on picks a second colour that is
+ * sure to be visible: the accent colour, or a shifted background if those two are the same.
+ */
+fun Theme.withGradient(on: Boolean): Theme = when {
+    !on -> copy(backgroundEnd = null)
+    backgroundEnd != null -> this
+    else -> {
+        val start = parseHexColor(background) ?: 0
+        val accent = parseHexColor(accentColor) ?: 0
+        val end = if ((accent and 0xFFFFFF) != (start and 0xFFFFFF)) solid(accent) else {
+            val hsv = argbToHsv(start)
+            hsvToArgb(hsv.h + 40f, maxOf(hsv.s, 0.4f), if (hsv.v < 0.5f) hsv.v + 0.3f else hsv.v - 0.3f)
+        }
+        copy(backgroundEnd = formatHexColor(end))
+    }
+}
+
+fun gradientDirectionName(direction: String): String = when (direction) {
+    "across" -> "Side to side"
+    "diagonal" -> "Corner to corner"
+    else -> "Top to bottom"
+}
+
 /** 8.0 becomes "8", 1.5 stays "1.5". */
 fun formatNumber(value: Float): String =
     if (value == value.roundToInt().toFloat()) value.roundToInt().toString() else value.toString()
@@ -144,10 +177,15 @@ fun formatNumber(value: Float): String =
 data class ThemePreset(val name: String, val theme: Theme)
 
 /**
- * Takes the colours and key shape from [look] but keeps this theme's sizes and letters,
- * so choosing a look never undoes the key height you settled on.
+ * Takes the colours, background and key shape from [look] but keeps this theme's sizes and
+ * letters, so choosing a look never undoes the key height you settled on.
  */
 fun Theme.withLook(look: Theme): Theme = copy(
+    backgroundEnd = look.backgroundEnd,
+    gradientDirection = look.gradientDirection,
+    backgroundOpacity = look.backgroundOpacity,
+    keyOpacity = look.keyOpacity,
+    colorSource = "own",
     background = look.background,
     keyColor = look.keyColor,
     functionKeyColor = look.functionKeyColor,
@@ -218,6 +256,34 @@ object ThemePresets {
                 background = "#F3E8FF", keyColor = "#FFFFFF", functionKeyColor = "#E3D0FB",
                 accentColor = "#7C3AED", keyPressedColor = "#D4B8F5", textColor = "#2E1A47",
                 accentTextColor = "#FFFFFF", cornerRadiusDp = 22f,
+            ),
+        ),
+        ThemePreset(
+            "Dusk",
+            Theme(
+                background = "#2B1E5C", backgroundEnd = "#C2416B", gradientDirection = "down",
+                keyColor = "#FFFFFF", functionKeyColor = "#000000", keyOpacity = 0.2f,
+                accentColor = "#FFD166", keyPressedColor = "#66FFFFFF", textColor = "#FFFFFF",
+                accentTextColor = "#2B1E5C", cornerRadiusDp = 12f,
+            ),
+        ),
+        ThemePreset(
+            "Aurora",
+            Theme(
+                background = "#0F2027", backgroundEnd = "#2C7A6B", gradientDirection = "diagonal",
+                keyColor = "#FFFFFF", functionKeyColor = "#000000", keyOpacity = 0.15f,
+                accentColor = "#7CF5C4", keyPressedColor = "#55FFFFFF", textColor = "#F1FFFA",
+                accentTextColor = "#0F2027", cornerRadiusDp = 10f,
+            ),
+        ),
+        ThemePreset(
+            "Glass",
+            Theme(
+                background = "#101418", backgroundOpacity = 0.45f,
+                keyColor = "#FFFFFF", functionKeyColor = "#FFFFFF", keyOpacity = 0.15f,
+                accentColor = "#FFFFFF", keyPressedColor = "#66FFFFFF", textColor = "#FFFFFF",
+                accentTextColor = "#101418", borderColor = "#40FFFFFF", borderWidthDp = 1f,
+                cornerRadiusDp = 12f,
             ),
         ),
     )

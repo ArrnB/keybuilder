@@ -69,6 +69,15 @@ data class ClipHistory(val entries: List<ClipEntry> = emptyList()) {
     }
 }
 
+/**
+ * A copied text squeezed onto the small button on the strip: on one line, and cut short
+ * with "…" if it is longer than [max] characters.
+ */
+fun quickClipLabel(text: String, max: Int = 16): String {
+    val oneLine = text.trim().split(Regex("\\s+")).joinToString(" ")
+    return if (oneLine.length <= max) oneLine else oneLine.take(max - 1).trimEnd() + "…"
+}
+
 /** Saves the history as JSON. A damaged or missing file simply reads as an empty history. */
 object ClipHistoryJson {
 

@@ -96,11 +96,12 @@ object KeyboardEngine {
 
     /**
      * How tall the keyboard is in dp, strip included. Panels use the same height, so the
-     * keyboard does not jump when one opens.
+     * keyboard does not jump when one opens. [strip] says whether the strip is showing; it
+     * also shows on a keyboard without shortcuts when suggestions are switched on.
      */
-    fun heightDp(def: KeyboardDef, state: KeyboardState): Float {
+    fun heightDp(def: KeyboardDef, state: KeyboardState, strip: Boolean = def.toolbar): Float {
         val rows = currentLayer(def, state).rows.sumOf { (def.theme.keyHeightDp * it.height).toDouble() }.toFloat()
-        return rows + def.theme.keyGapDp + if (def.toolbar) TOOLBAR_HEIGHT_DP else 0f
+        return rows + def.theme.keyGapDp + if (strip) TOOLBAR_HEIGHT_DP else 0f
     }
 
     /**

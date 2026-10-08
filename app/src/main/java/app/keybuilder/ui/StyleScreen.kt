@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.model.FONT_FAMILIES
+import app.keybuilder.model.GRADIENT_DIRECTIONS
 import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyStyle
 import app.keybuilder.model.KeyboardDef
@@ -49,9 +50,14 @@ import app.keybuilder.model.ThemeSize
 import app.keybuilder.model.backgroundFor
 import app.keybuilder.model.describe
 import app.keybuilder.model.formatNumber
+import app.keybuilder.model.gradientDirectionName
 import app.keybuilder.model.keyAt
+import app.keybuilder.model.opacityPercent
 import app.keybuilder.model.styledKeyCount
 import app.keybuilder.model.textColorFor
+import app.keybuilder.model.withBackgroundOpacity
+import app.keybuilder.model.withGradient
+import app.keybuilder.model.withKeyOpacity
 import app.keybuilder.model.withKeyStyle
 import app.keybuilder.model.withLook
 import app.keybuilder.model.withoutKeyStyles
@@ -184,6 +190,8 @@ fun StyleScreen(
 @Composable
 private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
     var editing by remember { mutableStateOf<ThemeColor?>(null) }
+    var editingGradient by remember { mutableStateOf(false) }
+    val fromPhone = theme.colorSource == "phone"
 
     SectionTitle("Ready-made looks")
     Row(
@@ -196,9 +204,73 @@ private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
     }
 
     SectionTitle("Colours")
-    for (field in ThemeColor.entries) {
-        ColorRow(field.label, field.get(theme), onClick = { editing = field })
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Pill("My colours", selected = !fromPhone, onClick = { onTheme(theme.copy(colorSource = "own")) })
+        Pill("Match the phone", selected = fromPhone, onClick = { onTheme(theme.copy(colorSource = "phone")) })
     }
+    if (fromPhone) {
+        Text(
+            "The keyboard takes its colours from the phone: on Android 12 and later, the colours " +
+                "Android makes from your wallpaper, and light or dark to match the phone. Change the " +
+                "wallpaper or switch to dark mode and the keyboard follows. Your own colours are " +
+                "kept for when you switch back. (A keyboard cannot see the app it is typing into, " +
+                "so it cannot copy an app's colours. To let the app show through instead, lower " +
+                "the background opacity below.)",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    } else {
+        for (field in ThemeColor.entries) {
+            ColorRow(field.label, field.get(theme), onClick = { editing = field })
+        }
+    }
+
+    SectionTitle("Background")
+    val gradient = theme.backgroundEnd != null
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Pill("One colour", selected = !gradient, onClick = { onTheme(theme.withGradient(false)) })
+        Pill("Gradient", selected = gradient, onClick = { onTheme(theme.withGradient(true)) })
+    }
+    if (gradient) {
+        if (!fromPhone) {
+            ColorRow("Gradient ends in", theme.backgroundEnd, onClick = { editingGradient = true })
+        }
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (direction in GRADIENT_DIRECTIONS) {
+                Pill(
+                    text = gradientDirectionName(direction),
+                    selected = theme.gradientDirection == direction,
+                    onClick = { onTheme(theme.copy(gradientDirection = direction)) },
+                )
+            }
+        }
+    }
+    val backgroundPercent = opacityPercent(theme.backgroundOpacity)
+    SliderRow(
+        label = "Background opacity",
+        valueText = "$backgroundPercent%",
+        value = backgroundPercent.toFloat(),
+        min = 0f,
+        max = 100f,
+        onChange = { onTheme(theme.withBackgroundOpacity(it)) },
+    )
+    val keyPercent = opacityPercent(theme.keyOpacity)
+    SliderRow(
+        label = "Key opacity",
+        valueText = "$keyPercent%",
+        value = keyPercent.toFloat(),
+        min = 0f,
+        max = 100f,
+        onChange = { onTheme(theme.withKeyOpacity(it)) },
+    )
+    Text(
+        "Below 100% the keyboard is see-through: whatever the app has behind it shows through and " +
+            "tints it. In this preview that is the app's own background; on the real keyboard it " +
+            "is the app you are typing in. Keep the letters readable on both light and dark apps.",
+        style = MaterialTheme.typography.bodySmall,
+    )
 
     SectionTitle("Shape and size")
     for (field in ThemeSize.entries) {
@@ -225,6 +297,18 @@ private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
         Pill("Bold", selected = theme.bold, onClick = { onTheme(theme.copy(bold = !theme.bold)) })
         // The small character in a key's corner that shows its first long-press choice.
         Pill("Corner hints", selected = theme.hints, onClick = { onTheme(theme.copy(hints = !theme.hints)) })
+    }
+
+    if (editingGradient) {
+        ColorPickerDialog(
+            title = "Gradient ends in",
+            initial = theme.backgroundEnd ?: theme.background,
+            onDismiss = { editingGradient = false },
+            onPick = { hex ->
+                onTheme(theme.copy(backgroundEnd = hex))
+                editingGradient = false
+            },
+        )
     }
 
     val field = editing
@@ -267,7 +351,7 @@ private fun PresetCard(preset: ThemePreset, onClick: () -> Unit) {
                 .fillMaxWidth()
                 .height(46.dp)
                 .clip(cardShape)
-                .background(t.background.toColorOrNull() ?: Color.Black)
+                .background(backgroundBrush(t))
                 .border(1.dp, MaterialTheme.colorScheme.outline, cardShape)
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -279,7 +363,7 @@ private fun PresetCard(preset: ThemePreset, onClick: () -> Unit) {
                     modifier = Modifier
                         .weight(1f)
                         .height(22.dp)
-                        .background(hex.toColorOrNull() ?: Color.Transparent, keyShape)
+                        .background((hex.toColorOrNull() ?: Color.Transparent).let { it.copy(alpha = it.alpha * t.keyOpacity) }, keyShape)
                         .then(if (t.borderWidthDp > 0f) Modifier.border(1.dp, borderColor, keyShape) else Modifier),
                 )
             }

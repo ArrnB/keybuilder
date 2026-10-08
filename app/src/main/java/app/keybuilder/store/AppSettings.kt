@@ -13,6 +13,14 @@ data class TypingSettings(
     val doubleSpace: Boolean = true,
     /** Show small symbols instead of words on the strip above the keys. */
     val stripIcons: Boolean = false,
+    /** Show word suggestions on the strip while typing. */
+    val suggestions: Boolean = true,
+    /** Fix slips automatically when a word is finished. */
+    val autocorrect: Boolean = true,
+    /** Remember the words you type, on this phone only, to suggest them later. Never in password boxes. */
+    val learn: Boolean = true,
+    /** Show the most recently copied thing on the strip, next to the gear, for one-tap pasting. */
+    val quickClip: Boolean = true,
 )
 
 /** Small settings shared by the app and the keyboard service. */
@@ -26,6 +34,10 @@ object AppSettings {
     private const val DOUBLE_SPACE = "double_space"
     private const val RECENT_EMOJI = "recent_emoji"
     private const val STRIP_ICONS = "strip_icons"
+    private const val SUGGESTIONS = "suggestions"
+    private const val AUTOCORRECT = "autocorrect"
+    private const val LEARN = "learn_words"
+    private const val QUICK_CLIP = "quick_clip"
 
     /** The user's own GIPHY API key, or empty if none has been entered. */
     fun giphyKey(context: Context): String = prefs(context).getString(GIPHY_KEY, "").orEmpty().trim()
@@ -48,6 +60,10 @@ object AppSettings {
             popups = p.getBoolean(POPUPS, true),
             doubleSpace = p.getBoolean(DOUBLE_SPACE, true),
             stripIcons = p.getBoolean(STRIP_ICONS, false),
+            suggestions = p.getBoolean(SUGGESTIONS, true),
+            autocorrect = p.getBoolean(AUTOCORRECT, true),
+            learn = p.getBoolean(LEARN, true),
+            quickClip = p.getBoolean(QUICK_CLIP, true),
         )
     }
 
@@ -57,6 +73,10 @@ object AppSettings {
             .putBoolean(POPUPS, settings.popups)
             .putBoolean(DOUBLE_SPACE, settings.doubleSpace)
             .putBoolean(STRIP_ICONS, settings.stripIcons)
+            .putBoolean(SUGGESTIONS, settings.suggestions)
+            .putBoolean(AUTOCORRECT, settings.autocorrect)
+            .putBoolean(LEARN, settings.learn)
+            .putBoolean(QUICK_CLIP, settings.quickClip)
             .apply()
     }
 

@@ -59,6 +59,68 @@ fun formatHexColor(argb: Int): String {
 
 fun colorAlpha(argb: Int): Float = ((argb ushr 24) and 0xFF) / 255f
 
+/** The same colour, [opacity] (0..1) times as solid as it was. A colour that was already see-through gets more so. */
+fun withOpacity(argb: Int, opacity: Float): Int {
+    val alpha = (((argb ushr 24) and 0xFF) * opacity.coerceIn(0f, 1f)).roundToInt().coerceIn(0, 255)
+    return (alpha shl 24) or (argb and 0xFFFFFF)
+}
+
+/** The same colour with nothing showing through it. Used for pop-ups, which must hide what is under them. */
+fun solid(argb: Int): Int = argb or (0xFF shl 24)
+
+/**
+ * The colours a phone offers a keyboard, as ARGB numbers. On Android 12 and later they come
+ * from the wallpaper; reading them is the keyboard service's job, see PhoneColors.kt.
+ */
+data class PhoneColors(
+    val dark: Boolean,
+    val background: Int,
+    /** A second, slightly different background, used when the theme has a gradient. */
+    val backgroundEnd: Int,
+    val key: Int,
+    val functionKey: Int,
+    val pressed: Int,
+    val accent: Int,
+    val text: Int,
+    val accentText: Int,
+) {
+    companion object {
+        /** For phones older than Android 12, which have no wallpaper colours: a plain dark or light set. */
+        fun plain(dark: Boolean): PhoneColors = if (dark) {
+            PhoneColors(
+                dark = true, background = 0xFF1B1D22.toInt(), backgroundEnd = 0xFF2A2F3A.toInt(),
+                key = 0xFF343842.toInt(), functionKey = 0xFF262930.toInt(), pressed = 0xFF565C6B.toInt(),
+                accent = 0xFF8AB4F8.toInt(), text = 0xFFFFFFFF.toInt(), accentText = 0xFF10223F.toInt(),
+            )
+        } else {
+            PhoneColors(
+                dark = false, background = 0xFFE8EAED.toInt(), backgroundEnd = 0xFFD5DAE3.toInt(),
+                key = 0xFFFFFFFF.toInt(), functionKey = 0xFFCDD1D8.toInt(), pressed = 0xFFB8BDC6.toInt(),
+                accent = 0xFF1A73E8.toInt(), text = 0xFF1F1F1F.toInt(), accentText = 0xFFFFFFFF.toInt(),
+            )
+        }
+    }
+}
+
+/**
+ * This theme wearing the phone's colours. Shape, sizes, letters and see-through settings
+ * stay yours; a gradient stays a gradient, between two of the phone's colours.
+ * The result is for drawing, not for saving: its colours are now fixed ("own").
+ */
+fun Theme.withPhoneColors(colors: PhoneColors): Theme = copy(
+    colorSource = "own",
+    background = formatHexColor(colors.background),
+    backgroundEnd = if (backgroundEnd != null) formatHexColor(colors.backgroundEnd) else null,
+    keyColor = formatHexColor(colors.key),
+    functionKeyColor = formatHexColor(colors.functionKey),
+    keyPressedColor = formatHexColor(colors.pressed),
+    accentColor = formatHexColor(colors.accent),
+    textColor = formatHexColor(colors.text),
+    accentTextColor = formatHexColor(colors.accentText),
+    // A border keeps its thickness but must stay visible on the new background.
+    borderColor = if (borderWidthDp > 0f) (if (colors.dark) "#66FFFFFF" else "#66000000") else borderColor,
+)
+
 /** True for colours that need light text on top of them. */
 fun isDarkColor(argb: Int): Boolean {
     val r = (argb shr 16) and 0xFF

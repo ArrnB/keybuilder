@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -38,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -52,6 +55,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +74,10 @@ import app.keybuilder.model.Theme
 import app.keybuilder.model.isDarkColor
 import app.keybuilder.model.panelName
 import app.keybuilder.model.parseHexColor
+import app.keybuilder.model.solid
+import app.keybuilder.model.withOpacity
+import app.keybuilder.suggest.Suggestion
+import app.keybuilder.suggest.SuggestionKind
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -101,6 +109,25 @@ private const val SETTINGS_PANEL = "settings"
  */
 val LocalStripIcons = compositionLocalOf { false }
 
+/**
+ * What the real keyboard adds to the strip: word suggestions, and the most recently copied
+ * thing for one-tap pasting. Previews inside the app leave this out.
+ */
+class StripExtras(
+    /** Shown in place of the shortcut buttons while there are any. */
+    val suggestions: List<Suggestion> = emptyList(),
+    val onSuggestion: (Suggestion) -> Unit = {},
+    /** The small arrow that brings the shortcut buttons back while suggestions are showing. */
+    val onShowTools: () -> Unit = {},
+    /** A short label for the last copied thing, or null to show no such button. */
+    val clip: String? = null,
+    val onClip: () -> Unit = {},
+    /** Holding the button hides it until something new is copied. */
+    val onClipHeld: () -> Unit = {},
+    /** Show the strip even on a keyboard that has its shortcut buttons switched off. */
+    val always: Boolean = false,
+)
+
 /** Size of the pop-up above a key: the width of one choice and the height, in dp. */
 private const val POPUP_CELL_DP = 44f
 private const val POPUP_HEIGHT_DP = 52f
@@ -131,8 +158,9 @@ private class Holder<T>(var value: T? = null)
  *
  * The real keyboard uses four more: [onAlternate] is told which long-press choice was
  * picked, [onKeyDown] is called the moment any key is touched (for vibration),
- * [showPopups] turns on the enlarged letter shown above a key while it is pressed, and
- * [onCursor] is told "left", "right", "up" or "down" while the held space bar is slid.
+ * [showPopups] turns on the enlarged letter shown above a key while it is pressed,
+ * [onCursor] is told "left", "right", "up" or "down" while the held space bar is slid, and
+ * [strip] puts suggestions and the last copied thing on the strip.
  */
 @Composable
 fun KeyboardView(
@@ -148,8 +176,10 @@ fun KeyboardView(
     onKeyDown: () -> Unit = {},
     showPopups: Boolean = false,
     onCursor: (String) -> Unit = {},
+    strip: StripExtras? = null,
 ) {
-    val theme = def.theme
+    // The theme as it should look right now: with the phone's colours, if it asks for them.
+    val theme = def.theme.resolved()
     val palette = remember(theme) { Palette(theme) }
     val layer = KeyboardEngine.currentLayer(def, state)
     val shift = KeyboardEngine.effectiveShift(def, state)
@@ -165,10 +195,12 @@ fun KeyboardView(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(palette.background)
+                .background(palette.backgroundPaint)
                 .padding(gap / 2),
         ) {
-            if (def.toolbar && showToolbar) ToolbarStrip(palette, onOpenPanel)
+            if (showToolbar && (def.toolbar || strip?.always == true)) {
+                ToolbarStrip(palette, shortcuts = def.toolbar, onOpenPanel = onOpenPanel, extras = strip)
+            }
 
             // key(...) throws away per-key state (like "is pressed") when the layer changes.
             key(layer.id) {
@@ -218,12 +250,19 @@ fun KeyboardView(
 }
 
 /**
- * The strip above the keys: one button per panel (clipboard, GIF, emoji) on the left and
- * the settings gear at the right end. The buttons show words or small symbols, see LocalStripIcons.
+ * The strip above the keys. Normally: one button per panel (clipboard, GIF, stickers, emoji)
+ * on the left, then the last copied thing, then the settings gear. While there are word
+ * suggestions they take the place of the panel buttons, with a small arrow to get the
+ * buttons back. The buttons show words or small symbols, see LocalStripIcons.
+ *
+ * [shortcuts] is false on a keyboard whose shortcut buttons are switched off; the strip
+ * then only carries suggestions and the last copied thing.
  */
 @Composable
-private fun ToolbarStrip(palette: Palette, onOpenPanel: (String) -> Unit) {
+private fun ToolbarStrip(palette: Palette, shortcuts: Boolean, onOpenPanel: (String) -> Unit, extras: StripExtras?) {
     val icons = LocalStripIcons.current
+    val suggestions = extras?.suggestions.orEmpty()
+    val suggesting = suggestions.isNotEmpty()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -232,34 +271,122 @@ private fun ToolbarStrip(palette: Palette, onOpenPanel: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // The panel buttons scroll sideways if they do not all fit; the gear always stays in view.
-        Row(
-            modifier = Modifier.weight(1f).fillMaxHeight().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for (panel in PANELS.filter { it != SETTINGS_PANEL }) {
-                StripButton(palette, onClick = { onOpenPanel(panel) }) {
-                    if (icons) {
-                        PanelGlyph(panel, palette.text)
-                    } else {
-                        BasicText(
-                            text = panelName(panel),
-                            maxLines = 1,
-                            style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
-                        )
+        if (suggesting && extras != null) {
+            if (shortcuts) {
+                StripButton(palette, onClick = extras.onShowTools, padding = 8f) {
+                    KeyIcon(KeyAction.Arrow("left"), ShiftState.OFF, palette.text, sizeDp = 16f)
+                }
+            }
+            Row(modifier = Modifier.weight(1f).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                suggestions.forEachIndexed { index, suggestion ->
+                    if (index > 0) {
+                        Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 5.dp).background(palette.text.copy(alpha = 0.2f)))
+                    }
+                    SuggestionCell(palette, suggestion, onClick = { extras.onSuggestion(suggestion) })
+                }
+            }
+        } else if (shortcuts) {
+            // The panel buttons scroll sideways if they do not all fit; what is right of them always stays in view.
+            Row(
+                modifier = Modifier.weight(1f).fillMaxHeight().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (panel in PANELS.filter { it != SETTINGS_PANEL }) {
+                    StripButton(palette, onClick = { onOpenPanel(panel) }) {
+                        if (icons) {
+                            PanelGlyph(panel, palette.text)
+                        } else {
+                            BasicText(
+                                text = panelName(panel),
+                                maxLines = 1,
+                                style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
+                            )
+                        }
                     }
                 }
             }
+        } else {
+            Spacer(Modifier.weight(1f))
         }
-        StripButton(palette, onClick = { onOpenPanel(SETTINGS_PANEL) }) {
-            PanelGlyph(SETTINGS_PANEL, palette.text)
+
+        val clip = extras?.clip
+        if (clip != null && extras != null) {
+            // While suggestions need the room, the last copied thing shrinks to a symbol.
+            QuickClipButton(palette, label = if (suggesting) null else clip, onTap = extras.onClip, onHold = extras.onClipHeld)
+        }
+        if (shortcuts) {
+            StripButton(palette, onClick = { onOpenPanel(SETTINGS_PANEL) }) {
+                PanelGlyph(SETTINGS_PANEL, palette.text)
+            }
+        }
+    }
+}
+
+/** One suggestion. The word autocorrect will put in is drawn bold; your own typing is shown in quotes. */
+@Composable
+private fun RowScope.SuggestionCell(palette: Palette, suggestion: Suggestion, onClick: () -> Unit) {
+    val correction = suggestion.kind == SuggestionKind.CORRECTION
+    val typed = suggestion.kind == SuggestionKind.TYPED
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(
+            text = if (typed) "\u201C${suggestion.text}\u201D" else suggestion.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = TextStyle(
+                color = if (typed) palette.text.copy(alpha = 0.7f) else palette.text,
+                fontSize = 15.sp,
+                fontFamily = palette.fontFamily,
+                fontWeight = if (correction) FontWeight.Bold else FontWeight.Normal,
+                textAlign = TextAlign.Center,
+            ),
+        )
+    }
+}
+
+/**
+ * The last copied thing: tap to paste it, hold to hide it. With a [label] it shows a
+ * clipboard symbol and the start of the text; without one, just the symbol.
+ */
+@Composable
+private fun QuickClipButton(palette: Palette, label: String?, onTap: () -> Unit, onHold: () -> Unit) {
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnHold by rememberUpdatedState(onHold)
+    Row(
+        modifier = Modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(50))
+            .background(palette.accentSolid.copy(alpha = 0.3f))
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { currentOnTap() }, onLongPress = { currentOnHold() })
+            }
+            .padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PanelGlyph("clipboard", palette.text, sizeDp = 16f)
+        if (label != null) {
+            BasicText(
+                text = label,
+                modifier = Modifier.widthIn(max = 110.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(color = palette.text, fontSize = 13.sp, fontFamily = palette.fontFamily),
+            )
         }
     }
 }
 
 @Composable
-private fun StripButton(palette: Palette, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun StripButton(palette: Palette, onClick: () -> Unit, padding: Float = 12f, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxHeight()
@@ -267,7 +394,7 @@ private fun StripButton(palette: Palette, onClick: () -> Unit, content: @Composa
             // A faint tint of the text colour, so it shows on any theme (even see-through keys).
             .background(palette.text.copy(alpha = 0.12f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = padding.dp),
         contentAlignment = Alignment.Center,
     ) {
         content()
@@ -387,7 +514,7 @@ private fun PopupBubble(popup: KeyPopup, theme: Theme, palette: Palette, keyboar
             .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
             .height(POPUP_HEIGHT_DP.dp)
             // Two layers: the solid keyboard colour first, so a see-through key colour still hides what is behind.
-            .background(palette.background, shape)
+            .background(palette.popupBase, shape)
             .background(palette.pressed, shape)
             .border(1.dp, palette.text.copy(alpha = 0.25f), shape),
     ) {
@@ -398,7 +525,7 @@ private fun PopupBubble(popup: KeyPopup, theme: Theme, palette: Palette, keyboar
                     .width(POPUP_CELL_DP.dp)
                     .fillMaxHeight()
                     .padding(3.dp)
-                    .background(if (picked) palette.accent else Color.Transparent, RoundedCornerShape(8.dp)),
+                    .background(if (picked) palette.accentSolid else Color.Transparent, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 BasicText(
@@ -764,14 +891,24 @@ internal fun KeyIcon(action: KeyAction, shift: ShiftState, tint: Color, sizeDp: 
 
 /** The theme's colour text turned into real colours once, instead of on every redraw. */
 private class Palette(theme: Theme) {
-    val background = theme.background.toColorOrNull() ?: Color(0xFF1B1D22)
-    val key = theme.keyColor.toColorOrNull() ?: Color(0xFF343842)
-    val function = theme.functionKeyColor.toColorOrNull() ?: Color(0xFF262930)
-    val accent = theme.accentColor.toColorOrNull() ?: Color(0xFF4C8DFF)
+    /** The background as paint: one colour or a fade between two, as see-through as the theme says. */
+    val backgroundPaint: Brush = backgroundBrush(theme)
+
+    /** The background colour with nothing showing through, for pop-ups that must cover what is under them. */
+    val popupBase = Color(solid(parseHexColor(theme.background) ?: 0xFF1B1D22.toInt()))
+
+    val key = keyColor(theme.keyColor, theme.keyOpacity) ?: Color(0xFF343842)
+    val function = keyColor(theme.functionKeyColor, theme.keyOpacity) ?: Color(0xFF262930)
+    val accent = keyColor(theme.accentColor, theme.keyOpacity) ?: Color(0xFF4C8DFF)
+
+    /** The accent colour at full strength, for small highlights that must stand out whatever the key opacity. */
+    val accentSolid = theme.accentColor.toColorOrNull() ?: Color(0xFF4C8DFF)
     val pressed = theme.keyPressedColor.toColorOrNull() ?: Color(0xFF565C6B)
     val text = theme.textColor.toColorOrNull() ?: Color.White
     val accentText = theme.accentTextColor.toColorOrNull() ?: Color.White
     val border = theme.borderColor.toColorOrNull() ?: Color.Transparent
+
+    private fun keyColor(hex: String, opacity: Float): Color? = parseHexColor(hex)?.let { Color(withOpacity(it, opacity)) }
 
     /** The ring around a selected key: white on dark keyboards, black on light ones. */
     val selection = if (isDarkColor(parseHexColor(theme.background) ?: 0)) Color.White else Color.Black

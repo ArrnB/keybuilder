@@ -224,6 +224,15 @@ object LayoutJson {
             } ?: d.fontFamily,
             bold = obj.boolean("bold", where) ?: d.bold,
             hints = obj.boolean("hints", where) ?: d.hints,
+            backgroundEnd = obj.color("backgroundEnd", where),
+            gradientDirection = obj.string("gradient", where)?.also {
+                if (it !in GRADIENT_DIRECTIONS) fail(where, "\"gradient\" must be one of ${GRADIENT_DIRECTIONS.joinToString()}, not \"$it\"")
+            } ?: d.gradientDirection,
+            backgroundOpacity = (obj.number("backgroundOpacity", where) ?: d.backgroundOpacity).coerceIn(0f, 1f),
+            keyOpacity = (obj.number("keyOpacity", where) ?: d.keyOpacity).coerceIn(0f, 1f),
+            colorSource = obj.string("colors", where)?.also {
+                if (it !in COLOR_SOURCES) fail(where, "\"colors\" must be one of ${COLOR_SOURCES.joinToString()}, not \"$it\"")
+            } ?: d.colorSource,
         )
     }
 
@@ -327,6 +336,11 @@ object LayoutJson {
         put("fontFamily", t.fontFamily)
         put("bold", t.bold)
         put("hints", t.hints)
+        t.backgroundEnd?.let { put("backgroundEnd", it) }
+        put("gradient", t.gradientDirection)
+        put("backgroundOpacity", t.backgroundOpacity)
+        put("keyOpacity", t.keyOpacity)
+        put("colors", t.colorSource)
     }
 
     // ---------------------------------------------------------------- helpers
