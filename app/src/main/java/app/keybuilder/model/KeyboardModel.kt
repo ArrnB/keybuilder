@@ -162,12 +162,23 @@ data class Theme(
     val backgroundOpacity: Float = 1f,
     /** 0..1: how solid the keys are. */
     val keyOpacity: Float = 1f,
+    /**
+     * How strongly whatever is behind a see-through keyboard is blurred, 0 (not at all) to
+     * MAX_BLUR. Only does anything while [backgroundOpacity] is below 1, and only on phones
+     * that allow one window to blur another (Android 12 and later, and not all of those).
+     */
+    val backgroundBlur: Float = 0f,
     /** One of COLOR_SOURCES: use the colours above, or take them from the phone. */
     val colorSource: String = "own",
 )
 
 /** The letter styles a theme can use, in the order they are offered. */
 val FONT_FAMILIES = listOf("sans", "serif", "mono")
+
+const val MAX_BLUR = 40f
+
+/** The blur that should actually be applied: none unless the background lets something show through. */
+fun Theme.blurInUse(): Float = if (backgroundOpacity < 1f) backgroundBlur.coerceIn(0f, MAX_BLUR) else 0f
 
 /** Which way a two-colour background fades: top to bottom, side to side, or corner to corner. */
 val GRADIENT_DIRECTIONS = listOf("down", "across", "diagonal")

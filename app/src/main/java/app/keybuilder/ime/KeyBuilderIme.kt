@@ -6,12 +6,12 @@ import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.SystemClock
 import android.text.InputType
-import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -50,6 +52,7 @@ import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 import app.keybuilder.model.PANELS
 import app.keybuilder.model.addRecentEmoji
+import app.keybuilder.model.blurInUse
 import app.keybuilder.store.AppSettings
 import app.keybuilder.store.TypingSettings
 import app.keybuilder.suggest.Suggestion
@@ -63,7 +66,9 @@ import app.keybuilder.ui.MainActivity
 import app.keybuilder.ui.PanelSize
 import app.keybuilder.ui.SettingsPanel
 import app.keybuilder.ui.StripExtras
+import app.keybuilder.ui.backgroundBrush
 import app.keybuilder.ui.resolved
+import kotlin.math.roundToInt
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -118,8 +123,15 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     private var recentEmoji by mutableStateOf<List<String>>(emptyList())
 
-    /** How much taller than the keyboard the panels have been dragged, in dp. */
+    /**
+     * How much taller than the keyboard the open panel has been dragged, in dp. It goes back
+     * to 0 whenever the panel closes or the keyboard is put away, so a panel always opens
+     * at its normal height.
+     */
     private var panelExtraDp by mutableStateOf(0f)
+
+    /** The blur currently asked of Android for what is behind the keyboard, in pixels. -1 = not asked yet. */
+    private var appliedBlurPx = -1
 
     /** The saved keyboards (id and name), listed in the settings panel. */
     private var savedKeyboards by mutableStateOf<List<Pair<String, String>>>(emptyList())
@@ -173,6 +185,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             decor.setViewTreeLifecycleOwner(this)
             decor.setViewTreeSavedStateRegistryOwner(this)
         }
+        appliedBlurPx = -1 // a new window: whatever blur was set is gone
         return ComposeView(this).also { composeView = it }.apply {
             setContent {
                 // resolved(): with the phone's own colours filled in, if the theme asks for them.
@@ -187,7 +200,10 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
     }
 
-    /** Decides what fills the keyboard area: the keys, a panel, or the keys with a search bar on top. */
+    /**
+     * Decides what fills the keyboard area: the keys, a panel, or (while search words are
+     * typed) a panel with the keys lying over its lower part.
+     */
     @Composable
     private fun KeyboardOrPanel(def: KeyboardDef) {
         // Panels are as tall as the keyboard so nothing jumps, but never too short to be useful.
@@ -196,33 +212,29 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         // A panel can be dragged taller, up to most of the screen.
         val metrics = resources.displayMetrics
         val maxExtra = (metrics.heightPixels / metrics.density * MAX_PANEL_SCREEN_SHARE - height).coerceAtLeast(0f)
-        val size = PanelSize(baseDp = height, extraDp = panelExtraDp.coerceIn(0f, maxExtra), maxExtraDp = maxExtra)
         val resize: (Float) -> Unit = { panelExtraDp = it }
 
+        // While search words are typed the panel being searched stays open behind the keys.
         val search = searching()
-        val panel = state.panel
-        val panelOpen = search == null && panel != null && panel in PANELS
+        val panel = if (search != null) panelOf(search) else state.panel
+        val panelOpen = panel != null && panel in PANELS
+        // The keys cover a keyboard's height of it, so it has to be taller than that to be seen.
+        val extra = if (search != null) KeyboardEngine.searchPanelExtra(panelExtraDp, maxExtra) else panelExtraDp
+        val size = PanelSize(baseDp = height, extraDp = extra.coerceIn(0f, maxExtra), maxExtraDp = maxExtra)
 
-        // Remember where the panel's edges are, for onComputeInsets below.
         SideEffect {
+            // Remember where the panel's edges are, for onComputeInsets below.
             val wanted = if (panelOpen) PanelInsets(size.baseDp, size.baseDp + size.extraDp) else null
             if (wanted != panelInsets) {
                 panelInsets = wanted
                 composeView?.requestLayout()
             }
+            // The frosted look is for the keys only. A panel is solid, and its window is taller
+            // than the panel, so blurring there would smear the app above the panel too.
+            applyBlur(if (panelOpen) 0f else def.theme.blurInUse())
         }
 
-        if (search != null) {
-            Column {
-                GifSearchBar(
-                    theme = def.theme,
-                    query = search.query,
-                    onCancel = { showPanel(panelOf(search)) },
-                    onSearch = { runSearch() },
-                )
-                Keys(def, showToolbar = false)
-            }
-        } else if (panelOpen && panel != null) {
+        if (panelOpen && panel != null) {
             // The window is made as tall as the panel can ever get, once, when the panel opens.
             // Dragging then only changes how much of that space the panel fills, which is just
             // a redraw. Resizing the window itself on every finger movement is what made it jerky.
@@ -231,9 +243,40 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 Panel(def, panel, size, resize)
+                if (search != null) {
+                    // The keys, on a solid background so the panel does not show through them.
+                    // The empty pointerInput stops a tap between two keys from reaching a GIF underneath.
+                    val solid: Brush = backgroundBrush(def.theme, opaque = true)
+                    Column(modifier = Modifier.fillMaxWidth().background(solid).pointerInput(Unit) {}) {
+                        GifSearchBar(
+                            theme = def.theme,
+                            query = search.query,
+                            onCancel = { showPanel(panelOf(search)) },
+                            onSearch = { runSearch() },
+                        )
+                        Keys(def, showToolbar = false)
+                    }
+                }
             }
         } else {
             Keys(def, showToolbar = true)
+        }
+    }
+
+    /**
+     * Asks Android to blur whatever is behind the keyboard's window (Android 12 and later).
+     * Phones that do not allow blur between windows simply ignore this, and the keyboard is
+     * see-through without the blur.
+     */
+    private fun applyBlur(radiusDp: Float) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val pixels = (radiusDp * resources.displayMetrics.density).roundToInt().coerceAtLeast(0)
+        if (pixels == appliedBlurPx) return
+        try {
+            window?.window?.setBackgroundBlurRadius(pixels)
+            appliedBlurPx = pixels
+        } catch (e: Exception) {
+            // Not possible on this phone. The see-through background still works.
         }
     }
 
@@ -307,6 +350,10 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 onClose = { showPanel(null) },
                 onUseKeyboard = { useKeyboard(it) },
                 onSettings = { changed ->
+                    // Let a new vibration strength be felt straight away.
+                    if (changed.vibrate && changed.vibrateStrength != typing.vibrateStrength) {
+                        Haptics.buzz(this, changed.vibrateStrength)
+                    }
                     typing = changed
                     AppSettings.setTyping(this, changed)
                     suggest.settingsChanged(changed, currentInputConnection)
@@ -352,7 +399,10 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 source.typing = true
                 suggest.clear()
             },
-            onQuickSearch = { source.search(it) },
+            onQuickSearch = {
+                source.typing = false // a one-tap search ends typing: the keys step aside
+                source.search(it)
+            },
             onPick = { sendGif(it, source) },
         )
     }
@@ -413,6 +463,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         }
         clipboard.refresh()
         clipboard.peek()
+        clipboard.importScreenshots() // does nothing unless that setting is on
         syncAutoCaps()
         // Decides what this text box allows. In a password box: nothing, and nothing is read from it.
         suggest.startField(info, typing, currentInputConnection)
@@ -420,6 +471,11 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        // The keyboard is going down: next time it comes up with the keys showing and panels at normal height.
+        gif.typing = false
+        sticker.typing = false
+        if (state.panel != null) state = state.copy(panel = null)
+        panelExtraDp = 0f
         suggest.clear()
         suggest.save()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
@@ -544,9 +600,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     /** Called the moment a key is touched. */
     private fun keyTouched() {
-        if (typing.vibrate) {
-            window?.window?.decorView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-        }
+        if (typing.vibrate) Haptics.buzz(this, typing.vibrateStrength)
     }
 
     /** Boxes for phone numbers, amounts, PINs and dates. */
@@ -633,11 +687,17 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         gif.typing = false
         sticker.typing = false
         state = state.copy(panel = panel)
-        if (panel == null) suggest.textChangedOtherwise(currentInputConnection) else suggest.clear()
+        if (panel == null) {
+            panelExtraDp = 0f // back to the keys: the next panel opens at normal height
+            suggest.textChangedOtherwise(currentInputConnection)
+        } else {
+            suggest.clear()
+        }
         when (panel) {
             "clipboard" -> {
                 clipboardMessage = null
                 clipboard.refresh()
+                clipboard.importScreenshots()
             }
             "gif" -> gif.open()
             "sticker" -> sticker.open()

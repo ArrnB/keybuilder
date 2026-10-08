@@ -40,6 +40,9 @@ sealed interface Effect {
     data class Command(val command: String) : Effect
 }
 
+/** One short vibration: how long, and how hard (1 to 255). */
+data class Buzz(val milliseconds: Long, val amplitude: Int)
+
 /** What a key offers when held down, and which of those is shown small in its corner (or null). */
 data class KeyChoices(val all: List<String> = emptyList(), val hint: String? = null)
 
@@ -204,6 +207,24 @@ object KeyboardEngine {
         val shownTop = (bottom - Math.round(shownPx)).coerceIn(viewTop, bottom)
         return contentTop to shownTop
     }
+
+    /**
+     * The vibration for a key press at [strength] 0..100. Stronger means both longer and harder,
+     * because many phones can only vary how long. 0 means none.
+     */
+    fun buzzFor(strength: Int): Buzz? {
+        val s = strength.coerceIn(0, 100)
+        if (s == 0) return null
+        return Buzz(milliseconds = Math.round(5f + s * 0.3f).toLong(), amplitude = Math.round(20f + s * 2.35f).coerceIn(1, 255))
+    }
+
+    /**
+     * While search words are typed, the keys lie over the bottom of the panel and the panel
+     * stays visible above them. For that the panel must be at least [wanted] taller than the
+     * keyboard (or as tall as it can get). A panel already dragged taller stays as it is.
+     */
+    fun searchPanelExtra(currentExtra: Float, maxExtra: Float, wanted: Float = 260f): Float =
+        maxOf(currentExtra, minOf(wanted, maxExtra.coerceAtLeast(0f))).coerceAtLeast(0f)
 
     /** Types a long-press choice. Like any typed character it uses up a single shift. */
     fun pressAlternate(state: KeyboardState, text: String): PressResult = typed(state, text)

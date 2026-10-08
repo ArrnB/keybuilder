@@ -353,6 +353,114 @@ class SuggestTest {
         assertNull(user.shape("hello"))
     }
 
+    // ------------------------------------------------------------------ your own corrections
+
+    @Test
+    fun aReplacementPickedTwiceBecomesAutomatic() {
+        val user = UserWords()
+        val e = engine(user)
+        val context = at("see you tmrw")
+        assertNull(e.correction(context))                 // chat shorthand: left alone at first
+        e.learnChoice(context, "tomorrow")
+        assertNull(e.correction(context))                 // once is not a habit
+        // But it is already the first thing offered.
+        assertEquals("tomorrow", words(e.suggestions(context, autocorrect = true)).first())
+        e.learnChoice(context, "tomorrow")
+        assertEquals("tomorrow", e.correction(context))
+        assertEquals("Tomorrow", e.correction(at("Tmrw")))
+        // It is shown as the correction that is about to happen.
+        val offered = e.suggestions(context, autocorrect = true)
+        assertEquals(Suggestion("tmrw", SuggestionKind.TYPED), offered[0])
+        assertEquals(Suggestion("tomorrow", SuggestionKind.CORRECTION), offered[1])
+    }
+
+    @Test
+    fun yourOwnCorrectionsWorkForHinglishToo() {
+        val user = UserWords()
+        val e = engine(user)
+        val context = at("mujhe nhi")
+        assertNull(e.correction(context))
+        repeat(2) { e.learnChoice(context, "nahi") }
+        assertEquals("nahi", e.correction(context))
+    }
+
+    @Test
+    fun finishingAWordIsNotACorrection() {
+        val user = UserWords()
+        val e = engine(user)
+        repeat(3) { e.learnChoice(at("tom"), "tomorrow") }  // "tom" is the start of "tomorrow"
+        assertNull(user.fix("tom"))
+        assertNull(e.correction(at("tom")))
+        repeat(3) { e.learnChoice(at("aryan@tmrw"), "tomorrow") }  // not a plain word
+        assertNull(user.fix("tmrw"))
+    }
+
+    @Test
+    fun undoingYourOwnCorrectionDropsTheHabit() {
+        val user = UserWords()
+        val e = engine(user)
+        val context = at("tmrw")
+        repeat(2) { e.learnChoice(context, "tomorrow") }
+        assertEquals("tomorrow", e.correction(context))
+        e.learn(context, "tomorrow")
+        e.correctionUndone(context, original = "tmrw", corrected = "tomorrow", remember = true)
+        assertNull(user.fix("tmrw"))
+        assertNull(e.correction(context))
+        assertTrue(user.isKept("tmrw"))
+    }
+
+    @Test
+    fun twoEquallyOftenPickedReplacementsAreOnlyOffered() {
+        val user = UserWords()
+        repeat(2) { user.learnFix("thx", "thanks") }
+        repeat(2) { user.learnFix("thx", "thank") }
+        assertNull(user.fix("thx"))
+        user.learnFix("thx", "thanks")
+        assertEquals("thanks", user.fix("thx"))
+        assertEquals(setOf("thanks", "thank"), user.fixChoices("thx"))
+    }
+
+    @Test
+    fun yourOwnCorrectionsSurviveSavingAndLoadingAndCanBeForgotten() {
+        val user = UserWords()
+        repeat(2) { user.learnFix("tmrw", "tomorrow") }
+        val loaded = UserWords.parse(user.toText())
+        assertEquals("tomorrow", loaded.fix("tmrw"))
+        assertEquals(2, loaded.fixCount("tmrw", "tomorrow"))
+        loaded.forget("tomorrow")
+        assertNull(loaded.fix("tmrw"))
+        assertTrue(loaded.fixChoices("tmrw").isEmpty())
+    }
+
+    // ------------------------------------------------------------------ which language you mostly type
+
+    @Test
+    fun someoneWhoMostlyTypesHinglishIsNotCorrectedAtTheStartOfASentence() {
+        val user = UserWords()
+        val e = engine(user)
+        assertFalse(e.leansHinglish())
+        assertEquals("because", e.correction(at("becuase")))
+        // Fifty Hinglish words later...
+        val hinglish = listOf("nahi", "kya", "kaise", "accha", "theek", "yaar", "bhai", "kyunki", "lekin", "bahut")
+        repeat(5) { for (word in hinglish) user.learn(word) }
+        assertTrue(engine(user).leansHinglish())
+        // ...an unknown first word is taken to be Hinglish and left alone,
+        assertNull(engine(user).correction(at("becuase")))
+        // while one in the middle of an English sentence is still fixed.
+        assertEquals("because", engine(user).correction(at("I left becuase")))
+    }
+
+    @Test
+    fun someoneWhoMostlyTypesEnglishIsNotTreatedAsHinglish() {
+        val user = UserWords()
+        val english = listOf("because", "keyboard", "tomorrow", "really", "something", "people", "about", "would", "there", "their")
+        repeat(5) { for (word in english) user.learn(word) }
+        repeat(2) { user.learn("nahi") }
+        val e = engine(user)
+        assertFalse(e.leansHinglish())
+        assertEquals("because", e.correction(at("becuase")))
+    }
+
     @Test
     fun rudeWordsAndNonWordsAreNotLearned() {
         val user = UserWords()

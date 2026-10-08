@@ -70,8 +70,11 @@ import kotlin.math.abs
 
 /** Panel colours worked out from the keyboard theme. */
 internal class PanelColors(theme: Theme) {
-    /** The same background as the keys: one colour or a fade, as see-through as the theme says. */
-    val background = backgroundBrush(theme)
+    /**
+     * The keys' background colours, but always solid. A panel lies over the app you are
+     * typing in, and on a see-through background its contents and the app's would run together.
+     */
+    val background = backgroundBrush(theme, opaque = true)
 
     /** The colour at the top of that background, for the thin search bar above the keys. */
     val backgroundTop = backgroundTopColor(theme)
@@ -533,6 +536,23 @@ fun SettingsPanel(
             item {
                 PanelToggle(colors, "Vibrate when a key is touched", settings.vibrate) {
                     onSettings(settings.copy(vibrate = it))
+                }
+            }
+            if (settings.vibrate) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        PanelText("Vibration strength: ${settings.vibrateStrength}%", colors.text, 14f, Modifier.weight(1f))
+                        PanelChip("Weaker", colors, onClick = {
+                            onSettings(settings.copy(vibrateStrength = (settings.vibrateStrength - 10).coerceIn(5, 100)))
+                        })
+                        PanelChip("Stronger", colors, onClick = {
+                            onSettings(settings.copy(vibrateStrength = (settings.vibrateStrength + 10).coerceIn(5, 100)))
+                        })
+                    }
                 }
             }
             item {

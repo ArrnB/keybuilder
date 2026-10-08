@@ -2,6 +2,7 @@ package app.keybuilder.ui
 
 import android.content.Context
 import android.os.Build
+import android.view.WindowManager
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -15,6 +16,7 @@ import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.PhoneColors
 import app.keybuilder.model.Theme
 import app.keybuilder.model.parseHexColor
+import app.keybuilder.model.solid
 import app.keybuilder.model.withOpacity
 import app.keybuilder.model.withPhoneColors
 
@@ -83,11 +85,27 @@ private fun readPhoneColors(context: Context, dark: Boolean): PhoneColors {
     }
 }
 
-/** The keyboard background as paint: one colour, or a fade between two, at the theme's opacity. */
-internal fun backgroundBrush(theme: Theme): Brush {
-    val start = Color(withOpacity(parseHexColor(theme.background) ?: 0xFF1B1D22.toInt(), theme.backgroundOpacity))
+/**
+ * Whether this phone lets one window blur what is behind it, which the frosted look needs.
+ * Android 12 added it; phone makers can leave it out, and battery saver switches it off.
+ */
+fun blurAllowed(context: Context): Boolean = try {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        context.getSystemService(WindowManager::class.java).isCrossWindowBlurEnabled
+} catch (e: Exception) {
+    false
+}
+
+/**
+ * The keyboard background as paint: one colour, or a fade between two, at the theme's opacity.
+ * With [opaque] the opacity is ignored and nothing shows through: panels use that, because
+ * a list of GIFs or copied text over a see-through background cannot be read.
+ */
+internal fun backgroundBrush(theme: Theme, opaque: Boolean = false): Brush {
+    fun paint(argb: Int): Color = Color(if (opaque) solid(argb) else withOpacity(argb, theme.backgroundOpacity))
+    val start = paint(parseHexColor(theme.background) ?: 0xFF1B1D22.toInt())
     val endColor = theme.backgroundEnd?.let { parseHexColor(it) } ?: return SolidColor(start)
-    val end = Color(withOpacity(endColor, theme.backgroundOpacity))
+    val end = paint(endColor)
     return when (theme.gradientDirection) {
         "across" -> Brush.horizontalGradient(listOf(start, end))
         "diagonal" -> Brush.linearGradient(listOf(start, end), start = Offset.Zero, end = Offset.Infinite)
@@ -95,6 +113,6 @@ internal fun backgroundBrush(theme: Theme): Brush {
     }
 }
 
-/** The colour at the top of the background, for the thin bars drawn above the keys. */
+/** The colour at the top of the background, solid, for the search bar drawn above the keys. */
 internal fun backgroundTopColor(theme: Theme): Color =
-    Color(withOpacity(parseHexColor(theme.background) ?: 0xFF1B1D22.toInt(), theme.backgroundOpacity))
+    Color(solid(parseHexColor(theme.background) ?: 0xFF1B1D22.toInt()))

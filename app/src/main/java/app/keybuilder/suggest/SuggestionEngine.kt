@@ -16,6 +16,13 @@ import kotlin.math.ln
  *     Hinglish sentence, because Hinglish has no fixed spelling to correct towards.
  *   - Undo a correction once (backspace right after it) and that word is left alone for good.
  *
+ * It adapts to the person typing, using nothing but what they typed on this phone:
+ *   - words typed twice become "yours": suggested, never corrected, and slips are fixed towards them
+ *   - the word you usually type after another is offered as the next word
+ *   - a replacement you pick twice ("tmrw", then tapping "tomorrow") is made for you from then on
+ *   - if most of what you type is Hinglish, an unknown word that starts a sentence is taken
+ *     to be Hinglish too and left alone
+ *
  * No Android code here. The keyboard service reads the text before the cursor, hands it
  * over as a TypingContext, and types whatever comes back.
  */
@@ -105,6 +112,10 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
 
     private val scratch = Typo.Scratch()
 
+    /** Whether this person types mostly Hinglish. Worked out from the learned words now and then. */
+    private var leaning: Boolean? = null
+    private var learnedSinceCheck = 0
+
     // ------------------------------------------------------------------ suggestions
 
     /**
@@ -160,6 +171,8 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
         for (c in user.completions(lower, 8)) {
             offer(c.word, userScore(c.score) - EXTRA_LETTER * (c.word.length - lower.length))
         }
+        // Whatever you picked for this before comes first.
+        for (meant in user.fixChoices(lower)) offer(meant, 900f + user.fixCount(lower, meant))
         // A solid word needs no "did you mean". Anything else gets look-alikes too.
         val solid = (lexicon.score(lower) ?: 0) >= RARE_BELOW || user.knows(lower)
         if (!solid && lower.length >= 3) {
@@ -204,6 +217,8 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
         val lower = typed.lowercase()
         if (lower.isEmpty() || !lower.all { it in 'a'..'z' }) return null
         if (user.knows(lower) || lower in keptForNow) return null
+        // Your own habit comes before every other rule: you picked this replacement yourself, more than once.
+        user.fix(lower)?.let { mine -> return shaped(mine, typed).takeIf { it != typed } }
         if (isHinglish(context)) return null
 
         // A few everyday fixes that need no guessing: i -> I, dont -> don't.
@@ -217,6 +232,8 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
         if (isStretched(lower)) return null
         // A known word with an ordinary ending ("anthems", "defusing") is a word, even if no list has it.
         if (!lexicon.contains(lower) && isBuiltOnKnownWord(lower)) return null
+        // With nothing before it to go on, an unknown word from someone who mostly types Hinglish is left alone.
+        if (context.previous.isEmpty() && !lexicon.contains(lower) && leansHinglish()) return null
 
         val choices = fixes(context, lower)
         val best = choices.firstOrNull() ?: return null
@@ -248,8 +265,14 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
             val needed = if (lower.length <= 4) COMMON_SHORT else COMMON
             allowed = all.filter { !lexicon.isHinglishOnly(it.word) && it.score >= needed }
         }
-        return allowed
-            .map { it.word to value(it, context) }
+        // A word can turn up twice, once from the list and once from your own words. Count it once.
+        val best = HashMap<String, Float>()
+        for (near in allowed) {
+            val worth = value(near, context)
+            if (worth > (best[near.word] ?: Float.NEGATIVE_INFINITY)) best[near.word] = worth
+        }
+        return best.entries
+            .map { it.key to it.value }
             .sortedWith(compareByDescending<Pair<String, Float>> { it.second }.thenBy { it.first })
     }
 
@@ -258,6 +281,26 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
 
     /** A sentence counts as Hinglish as soon as one of its last few words is Hinglish and not also English. */
     private fun isHinglish(context: TypingContext): Boolean = context.previous.any { lexicon.isHinglishOnly(it) }
+
+    /**
+     * True once there is enough to go on (LEAN_AFTER typed words that belong to one language
+     * only) and most of them are Hinglish.
+     */
+    fun leansHinglish(): Boolean {
+        leaning?.let { return it }
+        var hinglish = 0
+        var english = 0
+        user.forEachWord { word, count ->
+            when (lexicon.language(word)) {
+                'h' -> hinglish += count
+                'e' -> english += count
+            }
+        }
+        val result = hinglish + english >= LEAN_AFTER && hinglish >= LEAN_SHARE * (hinglish + english)
+        leaning = result
+        learnedSinceCheck = 0
+        return result
+    }
 
     // ------------------------------------------------------------------ learning
 
@@ -272,6 +315,22 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
         // A capital at the start of a sentence says nothing about the word; anywhere else it does.
         val deliberate = clean != lower && (!context.sentenceStart || clean.count { it.isUpperCase() } > 1)
         user.learn(lower, context.before, shape = clean.takeIf { deliberate })
+        if (++learnedSinceCheck >= 20) leaning = null // look again at which language you mostly type
+    }
+
+    /**
+     * A suggestion was tapped while [context]'s word was being typed. If that replaced the word
+     * rather than finishing it ("tmrw" -> "tomorrow", not "tom" -> "tomorrow"), it is remembered
+     * as your own correction; picked twice, it becomes automatic.
+     */
+    fun learnChoice(context: TypingContext, chosen: String) {
+        if (!context.plain) return
+        val typed = context.word.lowercase()
+        val meant = chosen.lowercase()
+        if (typed.length < 2 || !typed.all { it in 'a'..'z' } || !isSimple(meant)) return
+        if (meant == typed || meant.startsWith(typed)) return
+        if (lexicon.score(meant) == 0) return
+        user.learnFix(typed, meant)
     }
 
     /**
@@ -285,6 +344,7 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
             return
         }
         user.unlearn(corrected.lowercase(), context.before)
+        user.forgetFix(lower) // if the correction was a habit of yours, it is not one any more
         user.keep(lower)
         learn(context, original)
     }
@@ -342,6 +402,10 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
     private fun log2(x: Float): Float = (ln(x.toDouble()) / ln(2.0)).toFloat()
 
     companion object {
+        /** How many one-language words must be learned before guessing which language you mostly type, and the share needed. */
+        const val LEAN_AFTER = 40
+        const val LEAN_SHARE = 0.6f
+
         /** A word-list word scoring below this is rare enough to be a slip for something else. */
         const val RARE_BELOW = 400
         const val VERY_COMMON = 500

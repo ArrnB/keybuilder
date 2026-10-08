@@ -145,6 +145,15 @@ fun Theme.withBackgroundOpacity(percent: Float): Theme = copy(backgroundOpacity 
 fun Theme.withKeyOpacity(percent: Float): Theme = copy(keyOpacity = opacityPercent(percent / 100f) / 100f)
 
 /**
+ * Sets the blur in whole steps. Blur only shows through a see-through background, so turning
+ * it on while the background is solid also makes the background see-through.
+ */
+fun Theme.withBackgroundBlur(value: Float): Theme {
+    val blur = value.roundToInt().toFloat().coerceIn(0f, MAX_BLUR)
+    return copy(backgroundBlur = blur, backgroundOpacity = if (blur > 0f && backgroundOpacity >= 1f) 0.6f else backgroundOpacity)
+}
+
+/**
  * Turns the two-colour background on or off. Switching it on picks a second colour that is
  * sure to be visible: the accent colour, or a shifted background if those two are the same.
  */
@@ -185,6 +194,7 @@ fun Theme.withLook(look: Theme): Theme = copy(
     gradientDirection = look.gradientDirection,
     backgroundOpacity = look.backgroundOpacity,
     keyOpacity = look.keyOpacity,
+    backgroundBlur = look.backgroundBlur,
     colorSource = "own",
     background = look.background,
     keyColor = look.keyColor,
@@ -274,6 +284,15 @@ object ThemePresets {
                 keyColor = "#FFFFFF", functionKeyColor = "#000000", keyOpacity = 0.15f,
                 accentColor = "#7CF5C4", keyPressedColor = "#55FFFFFF", textColor = "#F1FFFA",
                 accentTextColor = "#0F2027", cornerRadiusDp = 10f,
+            ),
+        ),
+        ThemePreset(
+            "Frost",
+            Theme(
+                background = "#1A1C22", backgroundOpacity = 0.5f, backgroundBlur = 28f,
+                keyColor = "#FFFFFF", functionKeyColor = "#FFFFFF", keyOpacity = 0.14f,
+                accentColor = "#FFFFFF", keyPressedColor = "#66FFFFFF", textColor = "#FFFFFF",
+                accentTextColor = "#1A1C22", cornerRadiusDp = 12f,
             ),
         ),
         ThemePreset(

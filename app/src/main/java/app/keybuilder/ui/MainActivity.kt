@@ -7,7 +7,9 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +44,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
+import app.keybuilder.ime.ClipboardController
+import app.keybuilder.ime.Haptics
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
 import app.keybuilder.model.uniqueKeyboardId
@@ -89,6 +93,29 @@ class MainActivity : ComponentActivity() {
                 var clipboardCount by remember { mutableStateOf(0) }
                 var typing by remember { mutableStateOf(AppSettings.typing(context)) }
                 var learnedCount by remember { mutableStateOf(0) }
+                var screenshotsOn by remember { mutableStateOf(AppSettings.screenshotsEnabled(context)) }
+                var screenshotNote by remember { mutableStateOf<String?>(null) }
+
+                // Switching screenshots on, once Android has (or has not) given permission to see pictures.
+                val finishScreenshots: (Boolean) -> Unit = { allowed ->
+                    if (allowed) {
+                        // Screenshots go into the clipboard history, so that has to be on too.
+                        AppSettings.setClipboardEnabled(context, true)
+                        clipboardOn = true
+                        AppSettings.setScreenshotsEnabled(context, true)
+                        screenshotsOn = true
+                        screenshotNote = null
+                    } else {
+                        AppSettings.setScreenshotsEnabled(context, false)
+                        screenshotsOn = false
+                        screenshotNote = "Android did not give permission to see pictures, so screenshots " +
+                            "cannot be added. If you chose \"Select photos\", change it to \"Allow all\" in " +
+                            "the phone's settings: Apps > KeyBuilder > Permissions > Photos and videos."
+                    }
+                }
+                val askForPictures = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission(),
+                ) { granted -> finishScreenshots(granted) }
 
                 // The keyboard in use: the one you type with and the one the editors change.
                 val keyboard = keyboards.firstOrNull { it.id == activeId } ?: keyboards.first()
@@ -167,8 +194,25 @@ class MainActivity : ComponentActivity() {
                             ClipboardStore.save(context, ClipboardStore.load(context).clearUnpinned())
                             clipboardCount = 0
                         },
+                        screenshotsOn = screenshotsOn,
+                        screenshotNote = screenshotNote,
+                        onScreenshots = { on ->
+                            if (!on) {
+                                AppSettings.setScreenshotsEnabled(context, false)
+                                screenshotsOn = false
+                                screenshotNote = null
+                            } else if (ClipboardController.canSeePictures(context)) {
+                                finishScreenshots(true)
+                            } else {
+                                askForPictures.launch(ClipboardController.picturesPermission())
+                            }
+                        },
                         typing = typing,
                         onTyping = { changed ->
+                            // Let a new vibration strength be felt straight away.
+                            if (changed.vibrate && (changed.vibrateStrength != typing.vibrateStrength || !typing.vibrate)) {
+                                Haptics.buzz(context, changed.vibrateStrength)
+                            }
                             AppSettings.setTyping(context, changed)
                             typing = changed
                         },
@@ -206,6 +250,9 @@ class MainActivity : ComponentActivity() {
                                 // The gear on the keyboard changes these too.
                                 typing = AppSettings.typing(context)
                                 learnedCount = WordStore.learnedCount(context)
+                                // The permission can be taken away in the phone's settings at any time.
+                                screenshotsOn = AppSettings.screenshotsEnabled(context) &&
+                                    ClipboardController.canSeePictures(context)
                             }
                             screen = target
                         },

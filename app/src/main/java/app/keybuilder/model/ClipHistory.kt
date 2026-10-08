@@ -46,6 +46,8 @@ data class ClipHistory(val entries: List<ClipEntry> = emptyList()) {
     fun addImage(fileName: String, mime: String, id: Long): ClipHistory =
         ClipHistory(listOf(ClipEntry(id = id, imageFile = fileName, mime = mime)) + entries).trimmed()
 
+    fun hasImage(fileName: String): Boolean = entries.any { it.imageFile == fileName }
+
     fun togglePin(id: Long): ClipHistory =
         ClipHistory(entries.map { if (it.id == id) it.copy(pinned = !it.pinned) else it })
 
@@ -67,6 +69,19 @@ data class ClipHistory(val entries: List<ClipEntry> = emptyList()) {
         const val MAX_UNPINNED = 30
         const val MAX_TEXT_LENGTH = 20_000
     }
+}
+
+/** Our own copy of a screenshot is saved under a name that starts like this. */
+const val SCREENSHOT_FILE_PREFIX = "shot_"
+
+/**
+ * Whether a picture in the phone's gallery is a screenshot, judged by its folder and file
+ * name. Phones do not mark screenshots any other way: Samsung, Pixel and most others save
+ * them in a "Screenshots" folder as "Screenshot_...".
+ */
+fun isScreenshot(folder: String?, fileName: String?): Boolean {
+    val where = (folder.orEmpty() + "/" + fileName.orEmpty()).lowercase()
+    return "screenshot" in where || "screen_shot" in where || "screencapture" in where || "screen capture" in where
 }
 
 /**

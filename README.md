@@ -3,11 +3,12 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 8** adds word suggestions and automatic autocorrect for English and Hinglish, with
-learning that stays on the phone; a button on the strip that pastes the last thing you copied;
-and three new looks for the keyboard: see-through, a two-colour gradient, and colours taken
-from the phone.
-Earlier phases: 1 the working keyboard, 2 the style editor, 3 the layout editor and several
+**Phase 9** makes panels solid again on a see-through keyboard, keeps the GIF library on
+screen while you type a search, adds a frosted-glass blur, a vibration strength slider and
+screenshots in the clipboard, resets a dragged panel when it closes, and lets the keyboard
+learn your own corrections.
+Earlier phases: 8 suggestions and autocorrect for English and Hinglish, the last-copied
+button, see-through and gradient backgrounds and phone colours; 1 the working keyboard, 2 the style editor, 3 the layout editor and several
 saved keyboards, 4 the strip with clipboard, GIF and emoji panels, 5 long-press choices,
 pop-ups, arrow and copy/paste keys, vibration and number boxes, 6 built-in long-press
 choices, space-bar cursor steering, resizable panels, the settings gear and strip symbols,
@@ -19,8 +20,9 @@ choices, space-bar cursor steering, resizable panels, the settings gear and stri
    Gradle and the libraries, so it needs internet and takes a few minutes.
 2. Press Run with a phone or emulator connected (Android 8.0 or newer).
 3. In the app: **Open keyboard settings** and switch KeyBuilder on, then **Choose keyboard**.
-   Android shows a warning for every third-party keyboard. The app's only permission is
-   internet access, used only by the GIF panel.
+   Android shows a warning for every third-party keyboard. The app uses internet access
+   (only for the GIF and sticker panels) and vibration. It asks to see your photos only if
+   you switch on "Add new screenshots to the clipboard".
 4. Type in the test box.
 
 If Android Studio offers to upgrade the Android Gradle Plugin, either answer is fine.
@@ -38,7 +40,7 @@ Keyboard
   down a line at a time
 - The pressed letter is shown enlarged above the key
 - Arrow keys (they repeat while held) and copy, paste, cut and select-all keys, as key types
-- A short vibration when a key is touched
+- A short vibration when a key is touched, at a strength you set with a slider
 - Number boxes (phone, amount, PIN, date) open the layer you choose
 - Two spaces after a word type a full stop
 
@@ -61,6 +63,13 @@ Suggestions and autocorrect (English and Hinglish)
 - **Learning:** words you type twice become your own: they are suggested, their slips are
   fixed towards them, and they are never corrected. It also learns which word you type after
   which, and how you capitalise names. All of it is one file on the phone
+- **Your own corrections:** type `tmrw`, tap `tomorrow` in the suggestions, and the keyboard
+  remembers. The first time it puts `tomorrow` first for `tmrw`; from the second time it makes
+  the change for you. This works for Hinglish too (`nhi` to `nahi`, if that is what you pick),
+  and backspace straight after undoes it and drops the habit
+- **Which language you mostly type:** once most of the words it has learned from you are
+  Hinglish, an unknown word at the very start of a sentence is taken to be Hinglish and left
+  alone instead of being "fixed" into English
 - **Never in password boxes.** There, and in boxes for e-mail addresses, links and numbers, in
   boxes that ask for no suggestions, the keyboard does not read the text at all. In a
   browser's private mode it suggests but learns nothing
@@ -79,7 +88,10 @@ Shortcut strip and panels
   they do not all fit
 - Every panel has a small bar at its top: drag it up to make the panel taller (to see more
   GIFs, stickers, emoji or clipboard items) and down to shrink it; a tap jumps between normal
-  and tallest. The taller part lies over the app you are in rather than pushing it up
+  and tallest. The taller part lies over the app you are in rather than pushing it up. A
+  panel goes back to its normal height whenever it closes or the keyboard is put away
+- Panels are always solid, even when the keyboard itself is see-through, so their contents
+  never run together with the app behind them
 - Stickers: GIPHY's see-through pictures, with the same trending list, one-tap searches and
   typed search as GIFs, and the same key
 - Settings (the gear): switch to another of your saved keyboards, turn vibration, pop-ups,
@@ -89,9 +101,16 @@ Shortcut strip and panels
   and it moves to a Pinned section and stays until you unpin or remove it; Clear and the
   30-item limit never touch pinned items. Off until you turn it on. Anything a password
   manager marks as secret is skipped
-- GIF: trending GIFs, one-tap searches, and typed search (tap the search box and the keys type
-  into it), with "More GIFs" at the end of the list. Tap a GIF to send it; where an app takes
-  text only, a link is typed instead
+- **Screenshots in the clipboard:** switch on "Add new screenshots to the clipboard" in
+  Settings and every screenshot you take from then on appears in the clipboard panel and on
+  the last-copied button. Android does not put screenshots on the clipboard itself, so the
+  keyboard fetches them from the gallery, which is why Android asks you to let it see your
+  photos (choose "Allow all")
+- GIF: trending GIFs, one-tap searches, and typed search, with "More GIFs" at the end of the
+  list. Tap the search box and the keys come up **over the lower part of the library**, which
+  stays on screen above them (it grows taller if it has to). Search, or Cancel, and the keys
+  step aside again. Stickers work the same way. Tap a GIF to send it; where an app takes text
+  only, a link is typed instead
 - Emoji: about 400 emoji in six groups plus the ones you used recently, with a backspace key
 - Settings for all three: home screen > **Settings**. GIF search needs your own free
   GIPHY key, entered there
@@ -123,11 +142,15 @@ Several keyboards (home screen > **My keyboards**)
 - The Keys and Style screens always edit the keyboard that is in use
 
 Style editor (home screen > **Edit style**)
-- Eleven ready-made looks, three of them new: **Dusk** and **Aurora** (gradients) and **Glass**
-  (see-through). Choosing one changes colours, background and key shape but keeps your sizes
+- Twelve ready-made looks, among them **Dusk** and **Aurora** (gradients), **Glass**
+  (see-through) and **Frost** (see-through and blurred). Choosing one changes colours, background and key shape but keeps your sizes
 - Every colour, with a picker: sliders, quick choices, or type a colour code
 - **Background opacity** and **key opacity**, each from 0 to 100%. Below 100% the keyboard is
   see-through and whatever the app has behind it shows through and tints it
+- **Blur what is behind:** with the background below 100%, a blur turns the keyboard into
+  frosted glass: what is behind it on the screen becomes soft patches of its own colours.
+  This needs Android 12 or later and a phone that allows one window to blur another; the
+  style screen says whether yours does. Without it the keyboard is simply see-through
 - **Gradient:** a second background colour, fading top to bottom, side to side or corner to
   corner. The panels use the same background as the keys
 - **Match the phone:** the keyboard takes its colours from the phone instead of from you. On
@@ -148,15 +171,23 @@ switched off. Most of them are also behind the gear on the keyboard itself.
 Not in yet: dragging keys with a finger in the editor (keys move with buttons for now),
 emoji search and skin tones.
 
-### "Change colour according to the background": what a keyboard can and cannot do
+### A keyboard that takes on what is behind it
 
-Android does not let a keyboard see the app it is typing into, so it cannot read an app's
-colours and copy them. Two things come close, and both are in:
+Android does not let a keyboard read the screen of the app it is typing into, so it cannot
+pick out an app's colours. What it can do is let the screen show through itself:
 
-1. **Match the phone** follows the phone's own colours and light or dark mode, which is what
-   most apps follow too.
-2. **Opacity below 100%** lets the app behind show through, so the keyboard really does take
-   on the colour of whatever it is sitting on.
+1. **Opacity below 100%** makes the keyboard see-through, so it is tinted by whatever is
+   behind it.
+2. **Blur what is behind** on top of that gives frosted glass: instead of sharp shapes you
+   see soft patches of the colours behind the keyboard. Android does the blurring; the
+   keyboard only asks for it, and not every phone agrees (see the style screen).
+3. **Match the phone** is a different thing: fixed colours taken from the wallpaper palette
+   and light or dark mode.
+
+One thing to expect: most apps shrink themselves to end where the keyboard begins, so all
+that is behind the keyboard is the app's plain background, and the effect is a flat tint.
+It is at its best over a home screen, a photo, a map, or any app that draws to the bottom
+edge of the screen.
 
 ### How good is the autocorrect?
 
@@ -284,7 +315,7 @@ boxes that only take numbers. Leave it out to always open the start layer.
 `borderWidthDp`, `cornerRadiusDp`, `keyHeightDp`, `keyGapDp`, `fontSizeSp` (numbers),
 `fontFamily` (`sans`, `serif` or `mono`), `bold` and `hints` (`true` or `false`; hints are
 the small long-press characters in key corners). For the background: `backgroundOpacity` and
-`keyOpacity` (0 to 1), `backgroundEnd` (a second colour, which makes the background a
+`keyOpacity` (0 to 1), `backgroundBlur` (0 to 40), `backgroundEnd` (a second colour, which makes the background a
 gradient), `gradient` (`down`, `across` or `diagonal`), and `colors` (`own`, or `phone` to
 take the colours from the phone).
 
@@ -321,6 +352,12 @@ the Tenor API to outside developers on 30 June 2026). To switch provider later, 
   `suggest/FieldRules.kt` and it has its own tests.
 - The last-copied button reads the phone's clipboard when you copy something or open the
   keyboard, and shows it. It stores nothing.
+- "Add new screenshots to the clipboard" is off until you switch it on. It needs Android's
+  permission to see your photos. With it the keyboard asks the gallery for pictures added
+  since it last looked, keeps only those in a Screenshots folder or named like a screenshot,
+  and copies them into its clipboard history on the phone. It opens no other picture and
+  uploads nothing. (If you ever publish the app, note that Google Play restricts this
+  permission to apps that need broad photo access and asks for a justification.)
 - The only things sent over the internet are the search words you type **in the GIF panel**
   (to GIPHY, with your key) and the request for the GIF you tap. All of it is in `net/Http.kt`.
 - The clipboard history is kept in the app's private storage and is never sent anywhere. It is
@@ -351,38 +388,35 @@ character or a whole group and it appears in the app.
 
 ## How it was checked
 
-Phases 1 to 6 have been built and run on a phone. Phase 7 (smooth panel dragging, stickers,
-replacing keys) and this phase have not been confirmed on a phone yet.
+Phases 1 to 8 have been built and run on a phone.
 
-For phase 8, everything without Android code was compiled with warnings treated as errors
-and its 166 tests passed (114 before this phase). The new tests cover suggestions,
-autocorrect, undoing a correction, learning and its file, the password-box rule, the
-see-through, gradient and phone-colour settings and their saving and loading, and the
-last-copied label. The suggestion tests run against the real 51,000-word list. The
-autocorrect figures above come from a separate measurement, not from the tests.
+For phase 9, everything without Android code was compiled with warnings treated as errors
+and its 181 tests passed (166 before this phase). The new tests cover your own corrections,
+the language leaning, the blur setting, the vibration strengths, the panel height while
+searching, and telling screenshots from other pictures. Writing them turned up a fault in
+phase 8, now fixed: once you had typed a word twice, slips for that word stopped being
+corrected.
 
-The Android parts were written without access to the Android build tools, so **phase 8 has
-not been built or run yet**. The parts that talk to Android without drawing anything (reading
-the text before the cursor, the clipboard, saving files) were type-checked against small
-stand-ins for the Android classes; the drawing code was only checked for syntax.
+The Android parts were written without access to the Android build tools, so **phase 9 has
+not been built or run yet**. The parts that talk to Android without drawing anything (the
+clipboard, the gallery query for screenshots, vibration, settings) were type-checked against
+small stand-ins for the Android classes; the drawing code was only checked for syntax.
 
 Things that could only be reasoned about, not tried, and are worth watching:
 
-- **See-through backgrounds.** They rely on Android showing the app through the keyboard's
-  window. What exactly shows depends on the app: usually its plain background colour, in
-  some apps its content, in a few just black.
-- **Match the phone** on Android 12 and later reads Android's wallpaper colours. Whether the
-  keyboard picks up a wallpaper change straight away or the next time it opens was not tried.
-- **Suggestions in apps that report the cursor oddly.** The keyboard re-reads the text before
-  the cursor after every key, so it should stay in step, but some apps (certain browsers and
-  games) answer slowly or not at all; there suggestions may lag or stay empty.
-- **Reading the word list** takes roughly a third of a second on a computer and will take
-  longer on a phone. It happens in the background once, when the keyboard starts; until it
-  is done there are simply no suggestions.
-
-The panel dragging from phase 7 is unchanged, and its note still applies: if, with a panel
-open, the app above it cannot be touched, jumps upward, or the panel leaves an empty band,
-say which and it can be corrected.
+- **Blur.** It uses Android's "background blur" for windows. Whether a phone allows it is up
+  to its maker, and it has never been tried on a keyboard window here. If the style screen
+  says the phone allows it and nothing blurs, or the blur covers more than the keyboard,
+  say so.
+- **Screenshots.** Found by folder and file name ("Screenshots", "Screenshot_..."), which is
+  how Samsung, Pixel and most phones save them. A phone that names them differently needs
+  its name added to `isScreenshot` in `model/ClipHistory.kt`.
+- **Searching over the library.** The keys are drawn over the panel inside one window. Check
+  that a tap between keys never sends a GIF from underneath, and that the library above the
+  keys still scrolls.
+- **Vibration strength.** The numbers behind the slider (5 to 35 milliseconds, soft to full)
+  are a first guess. If the whole range feels too weak or too strong, they are two lines in
+  `KeyboardEngine.buzzFor`.
 
 ## Roadmap
 

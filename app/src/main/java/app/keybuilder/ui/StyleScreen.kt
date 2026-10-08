@@ -34,11 +34,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.model.FONT_FAMILIES
 import app.keybuilder.model.GRADIENT_DIRECTIONS
+import app.keybuilder.model.MAX_BLUR
 import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyStyle
 import app.keybuilder.model.KeyboardDef
@@ -55,6 +57,7 @@ import app.keybuilder.model.keyAt
 import app.keybuilder.model.opacityPercent
 import app.keybuilder.model.styledKeyCount
 import app.keybuilder.model.textColorFor
+import app.keybuilder.model.withBackgroundBlur
 import app.keybuilder.model.withBackgroundOpacity
 import app.keybuilder.model.withGradient
 import app.keybuilder.model.withKeyOpacity
@@ -266,9 +269,33 @@ private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
         onChange = { onTheme(theme.withKeyOpacity(it)) },
     )
     Text(
-        "Below 100% the keyboard is see-through: whatever the app has behind it shows through and " +
-            "tints it. In this preview that is the app's own background; on the real keyboard it " +
-            "is the app you are typing in. Keep the letters readable on both light and dark apps.",
+        "Below 100% the keyboard is see-through: whatever is behind it on the screen shows through " +
+            "and tints it. Panels (clipboard, GIFs, emoji, settings) always stay solid so they can " +
+            "be read.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    SliderRow(
+        label = "Blur what is behind",
+        valueText = if (theme.backgroundBlur <= 0f) "Off" else formatNumber(theme.backgroundBlur),
+        value = theme.backgroundBlur,
+        min = 0f,
+        max = MAX_BLUR,
+        onChange = { onTheme(theme.withBackgroundBlur(it)) },
+    )
+    val context = LocalContext.current
+    val canBlur = remember { blurAllowed(context) }
+    Text(
+        text = (if (canBlur) {
+            "Frosted glass: what is behind the keyboard is smeared into soft patches of its own " +
+                "colours. This phone allows it. "
+        } else {
+            "Frosted glass: what is behind the keyboard is smeared into soft patches of its own " +
+                "colours. Right now this phone does NOT allow a window to blur what is behind it " +
+                "(it is missing on some phones and switched off by battery saver), so the keyboard " +
+                "will be see-through without the blur. "
+        }) + "The blur cannot be shown in this preview; open the keyboard in another app to see " +
+            "it. In most apps the only thing behind the keyboard is the app's plain background, " +
+            "so it shows best where a picture or wallpaper reaches the bottom of the screen.",
         style = MaterialTheme.typography.bodySmall,
     )
 

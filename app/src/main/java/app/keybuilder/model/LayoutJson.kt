@@ -230,6 +230,7 @@ object LayoutJson {
             } ?: d.gradientDirection,
             backgroundOpacity = (obj.number("backgroundOpacity", where) ?: d.backgroundOpacity).coerceIn(0f, 1f),
             keyOpacity = (obj.number("keyOpacity", where) ?: d.keyOpacity).coerceIn(0f, 1f),
+            backgroundBlur = (obj.number("backgroundBlur", where) ?: d.backgroundBlur).coerceIn(0f, MAX_BLUR),
             colorSource = obj.string("colors", where)?.also {
                 if (it !in COLOR_SOURCES) fail(where, "\"colors\" must be one of ${COLOR_SOURCES.joinToString()}, not \"$it\"")
             } ?: d.colorSource,
@@ -340,6 +341,7 @@ object LayoutJson {
         put("gradient", t.gradientDirection)
         put("backgroundOpacity", t.backgroundOpacity)
         put("keyOpacity", t.keyOpacity)
+        put("backgroundBlur", t.backgroundBlur)
         put("colors", t.colorSource)
     }
 

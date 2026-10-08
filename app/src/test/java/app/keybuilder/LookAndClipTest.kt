@@ -5,6 +5,11 @@ import app.keybuilder.model.COLOR_SOURCES
 import app.keybuilder.model.GRADIENT_DIRECTIONS
 import app.keybuilder.model.LayoutFormatException
 import app.keybuilder.model.LayoutJson
+import app.keybuilder.model.MAX_BLUR
+import app.keybuilder.model.ClipHistory
+import app.keybuilder.model.blurInUse
+import app.keybuilder.model.isScreenshot
+import app.keybuilder.model.withBackgroundBlur
 import app.keybuilder.model.PhoneColors
 import app.keybuilder.model.TOOLBAR_HEIGHT_DP
 import app.keybuilder.model.Theme
@@ -57,6 +62,87 @@ class LookAndClipTest {
         assertEquals(1f, Theme().withKeyOpacity(400f).keyOpacity, 0.001f)
         assertEquals(45, opacityPercent(0.45f))
         assertEquals(100, opacityPercent(1f))
+    }
+
+    // ------------------------------------------------------------------ blur
+
+    @Test
+    fun blurOnlyCountsWhileTheBackgroundIsSeeThrough() {
+        assertEquals(0f, Theme(backgroundBlur = 30f).blurInUse(), 0f)                       // solid: nothing to blur
+        assertEquals(30f, Theme(backgroundBlur = 30f, backgroundOpacity = 0.5f).blurInUse(), 0f)
+        assertEquals(0f, Theme(backgroundOpacity = 0.5f).blurInUse(), 0f)
+        assertEquals(MAX_BLUR, Theme(backgroundBlur = 999f, backgroundOpacity = 0.5f).blurInUse(), 0f)
+    }
+
+    @Test
+    fun turningBlurOnMakesASolidBackgroundSeeThrough() {
+        val on = Theme().withBackgroundBlur(24.4f)
+        assertEquals(24f, on.backgroundBlur, 0f)
+        assertTrue(on.backgroundOpacity < 1f)
+        // An opacity you already chose is kept.
+        assertEquals(0.3f, Theme(backgroundOpacity = 0.3f).withBackgroundBlur(10f).backgroundOpacity, 0f)
+        // Turning it off again changes nothing else.
+        assertEquals(0.3f, Theme(backgroundOpacity = 0.3f, backgroundBlur = 10f).withBackgroundBlur(0f).backgroundOpacity, 0f)
+        assertEquals(MAX_BLUR, Theme().withBackgroundBlur(500f).backgroundBlur, 0f)
+        assertEquals(0f, Theme().withBackgroundBlur(-3f).backgroundBlur, 0f)
+    }
+
+    @Test
+    fun blurIsSavedAndThereIsAFrostedLook() {
+        val theme = qwerty.theme.copy(backgroundOpacity = 0.5f, backgroundBlur = 22f)
+        assertEquals(theme, LayoutJson.parse(LayoutJson.toJson(qwerty.copy(theme = theme))).theme)
+        assertEquals(0f, qwerty.theme.backgroundBlur, 0f)
+        val frost = ThemePresets.all.first { it.name == "Frost" }.theme
+        assertTrue(frost.blurInUse() > 0f)
+        assertEquals(frost.backgroundBlur, Theme().withLook(frost).backgroundBlur, 0f)
+        assertEquals(0f, Theme().withLook(frost).withLook(Theme()).backgroundBlur, 0f)
+    }
+
+    // ------------------------------------------------------------------ vibration
+
+    @Test
+    fun strongerVibrationIsLongerAndHarder() {
+        assertNull(KeyboardEngine.buzzFor(0))
+        assertNull(KeyboardEngine.buzzFor(-5))
+        val light = KeyboardEngine.buzzFor(10)!!
+        val medium = KeyboardEngine.buzzFor(50)!!
+        val strong = KeyboardEngine.buzzFor(100)!!
+        assertTrue(light.milliseconds < medium.milliseconds && medium.milliseconds < strong.milliseconds)
+        assertTrue(light.amplitude < medium.amplitude && medium.amplitude < strong.amplitude)
+        assertEquals(255, strong.amplitude)
+        assertTrue(light.milliseconds >= 5 && strong.milliseconds <= 40)
+        assertEquals(strong, KeyboardEngine.buzzFor(900))
+        for (s in 1..100) assertTrue(KeyboardEngine.buzzFor(s)!!.amplitude in 1..255)
+    }
+
+    // ------------------------------------------------------------------ searching inside a panel
+
+    @Test
+    fun aPanelGrowsSoItStaysVisibleAboveTheKeysWhileSearching() {
+        assertEquals(260f, KeyboardEngine.searchPanelExtra(0f, 500f), 0f)
+        assertEquals(400f, KeyboardEngine.searchPanelExtra(400f, 500f), 0f)   // already dragged taller
+        assertEquals(120f, KeyboardEngine.searchPanelExtra(0f, 120f), 0f)     // a small screen: as tall as it gets
+        assertEquals(0f, KeyboardEngine.searchPanelExtra(0f, -10f), 0f)
+    }
+
+    // ------------------------------------------------------------------ screenshots
+
+    @Test
+    fun screenshotsAreToldFromOtherPictures() {
+        assertTrue(isScreenshot("DCIM/Screenshots/", "Screenshot_20261008_163200_Chrome.jpg"))
+        assertTrue(isScreenshot("Pictures/Screenshots/", "IMG_0001.png"))
+        assertTrue(isScreenshot(null, "Screenshot_1.png"))
+        assertTrue(isScreenshot("/storage/emulated/0/DCIM/Screen_shots/a.png", null))
+        assertFalse(isScreenshot("DCIM/Camera/", "20261008_163200.jpg"))
+        assertFalse(isScreenshot("Download/", "invoice.png"))
+        assertFalse(isScreenshot(null, null))
+    }
+
+    @Test
+    fun aScreenshotIsNotAddedToTheClipboardTwice() {
+        val history = ClipHistory().addImage("shot_1.png", "image/png", 1L)
+        assertTrue(history.hasImage("shot_1.png"))
+        assertFalse(history.hasImage("shot_2.png"))
     }
 
     // ------------------------------------------------------------------ two colours

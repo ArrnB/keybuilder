@@ -161,7 +161,11 @@ class SuggestController(private val context: Context) {
         connection.endBatchEdit()
         // Tapping your own word means "leave it as I typed it".
         if (suggestion.kind == SuggestionKind.TYPED) engine.keep(suggestion.text, remember = canLearn)
-        if (canLearn) engine.learn(typing, suggestion.text)
+        if (canLearn) {
+            engine.learn(typing, suggestion.text)
+            // Picking a different word than you typed is remembered as your own correction.
+            if (suggestion.kind != SuggestionKind.TYPED) engine.learnChoice(typing, suggestion.text)
+        }
         undo = null
         addedSpace = true
         hidden = false

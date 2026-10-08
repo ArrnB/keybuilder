@@ -4,11 +4,12 @@ package app.keybuilder.suggest
  * What the keyboard has learned from your own typing. It lives in one small text file in the
  * app's private storage on the phone and is never sent anywhere.
  *
- * It remembers four things:
+ * It remembers five things:
  *   - how often you have typed each word (your own words get suggested, and are not "corrected")
  *   - which word you tend to type after which (for guessing the next word)
  *   - words you told it to leave alone, by undoing a correction
  *   - how you write a word when it is not all lower case ("Aryan", "NASA")
+ *   - your own corrections: what you typed, and the suggestion you tapped to replace it
  *
  * No Android code here, so the rules are unit tested.
  */
@@ -18,6 +19,9 @@ class UserWords {
     private val pairs = HashMap<String, HashMap<String, Int>>()
     private val kept = HashSet<String>()
     private val shapes = HashMap<String, String>()
+
+    /** What you typed -> the word you chose instead -> how many times. */
+    private val fixes = HashMap<String, HashMap<String, Int>>()
 
     /** True when something was learned since the last save. */
     var changed = false
@@ -71,6 +75,47 @@ class UserWords {
         changed = true
     }
 
+    /** Notes that you typed [typed] and then picked [meant] to replace it. */
+    fun learnFix(typed: String, meant: String) {
+        if (typed.isEmpty() || meant.isEmpty() || typed == meant) return
+        if (typed.length > MAX_WORD_LENGTH || meant.length > MAX_WORD_LENGTH) return
+        val choices = fixes.getOrPut(typed) { HashMap() }
+        choices[meant] = ((choices[meant] ?: 0) + 1).coerceAtMost(MAX_COUNT)
+        changed = true
+        if (fixes.size > MAX_FIXES + SLACK) {
+            val keepers = fixes.entries.sortedByDescending { it.value.values.sum() }.take(MAX_FIXES).map { it.key }.toHashSet()
+            fixes.keys.retainAll(keepers)
+        }
+    }
+
+    fun fixCount(typed: String, meant: String): Int = fixes[typed]?.get(meant) ?: 0
+
+    /** Every word you have ever picked in place of [typed]. */
+    fun fixChoices(typed: String): Set<String> = fixes[typed]?.keys.orEmpty()
+
+    /**
+     * Your own correction for [typed]: the word you picked for it at least FIX_AFTER times,
+     * and more often than anything else. Null if there is no such habit yet.
+     */
+    fun fix(typed: String): String? {
+        val choices = fixes[typed] ?: return null
+        val best = choices.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        val top = best.first()
+        if (top.value < FIX_AFTER) return null
+        if (best.size > 1 && best[1].value == top.value) return null
+        return top.key
+    }
+
+    /** Drops your corrections for [typed], used when one of them is undone. */
+    fun forgetFix(typed: String) {
+        if (fixes.remove(typed) != null) changed = true
+    }
+
+    /** Calls [action] with every learned word and how often it was typed. */
+    fun forEachWord(action: (String, Int) -> Unit) {
+        for ((word, count) in counts) action(word, count)
+    }
+
     /** From now on [word] is left exactly as typed. */
     fun keep(word: String) {
         if (word.isEmpty() || word.length > MAX_WORD_LENGTH) return
@@ -84,7 +129,10 @@ class UserWords {
         shapes.remove(word)
         pairs.remove(word)
         for (after in pairs.values) after.remove(word)
-        if (had || wasKept) changed = true
+        val hadFix = fixes.remove(word) != null
+        for (choices in fixes.values) choices.remove(word)
+        fixes.values.removeAll { it.isEmpty() }
+        if (had || wasKept || hadFix) changed = true
     }
 
     /** The words you most often type after [previous], most frequent first. */
@@ -129,6 +177,7 @@ class UserWords {
      *   w  word  count  [how you write it]
      *   k  word                    (leave this word alone)
      *   p  word  next  count       (next was typed after word)
+     *   f  typed  meant  count     (you typed this and picked that instead)
      */
     fun toText(): String = buildString {
         append(HEADER).append('\n')
@@ -142,6 +191,12 @@ class UserWords {
             val after = pairs[previous] ?: continue
             for (next in after.keys.sorted()) {
                 append("p\t").append(previous).append('\t').append(next).append('\t').append(after[next]).append('\n')
+            }
+        }
+        for (typed in fixes.keys.sorted()) {
+            val choices = fixes[typed] ?: continue
+            for (meant in choices.keys.sorted()) {
+                append("f\t").append(typed).append('\t').append(meant).append('\t').append(choices[meant]).append('\n')
             }
         }
     }
@@ -173,6 +228,10 @@ class UserWords {
         const val MAX_WORDS = 4000
         const val MAX_PAIR_STARTS = 3000
         const val MAX_NEXT_PER_WORD = 12
+        const val MAX_FIXES = 1000
+
+        /** A replacement you pick this many times becomes automatic. */
+        const val FIX_AFTER = 2
         private const val SLACK = 200
         private const val HEADER = "# KeyBuilder learned words. Stays on this phone."
 
@@ -198,6 +257,13 @@ class UserWords {
                         val count = parts.getOrNull(3)?.toIntOrNull() ?: continue
                         if (previous.isEmpty() || next.isEmpty() || count <= 0) continue
                         user.pairs.getOrPut(previous) { HashMap() }[next] = count.coerceAtMost(MAX_COUNT)
+                    }
+                    "f" -> {
+                        val typed = parts.getOrNull(1).orEmpty()
+                        val meant = parts.getOrNull(2).orEmpty()
+                        val count = parts.getOrNull(3)?.toIntOrNull() ?: continue
+                        if (typed.isEmpty() || meant.isEmpty() || count <= 0) continue
+                        user.fixes.getOrPut(typed) { HashMap() }[meant] = count.coerceAtMost(MAX_COUNT)
                     }
                 }
             }

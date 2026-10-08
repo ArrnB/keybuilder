@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.store.TypingSettings
 
@@ -54,6 +55,9 @@ fun ExtrasScreen(
     clipboardCount: Int,
     onClipboardOn: (Boolean) -> Unit,
     onEraseClipboard: () -> Unit,
+    screenshotsOn: Boolean,
+    screenshotNote: String?,
+    onScreenshots: (Boolean) -> Unit,
     typing: TypingSettings,
     onTyping: (TypingSettings) -> Unit,
     learnedCount: Int,
@@ -89,6 +93,20 @@ fun ExtrasScreen(
                     on = typing.vibrate,
                     onChange = { onTyping(typing.copy(vibrate = it)) },
                 )
+                if (typing.vibrate) {
+                    SliderRow(
+                        label = "Vibration strength",
+                        valueText = "${typing.vibrateStrength}%",
+                        value = typing.vibrateStrength.toFloat(),
+                        min = 5f,
+                        max = 100f,
+                        onChange = { value ->
+                            // Steps of 5, and you feel each step as you drag (MainActivity buzzes on change).
+                            val stepped = ((value / 5f).roundToInt() * 5).coerceIn(5, 100)
+                            if (stepped != typing.vibrateStrength) onTyping(typing.copy(vibrateStrength = stepped))
+                        },
+                    )
+                }
                 OnOffRow(
                     label = "Show the letter above a pressed key",
                     on = typing.popups,
@@ -105,7 +123,7 @@ fun ExtrasScreen(
                     onChange = { onTyping(typing.copy(stripIcons = it)) },
                 )
                 Text(
-                    "Vibration also needs \"touch feedback\" to be on in the phone's own sound settings.",
+                    "Stronger means a longer and harder buzz. Some phones can only make it longer.",
                     style = MaterialTheme.typography.bodySmall,
                 )
 
@@ -200,6 +218,21 @@ fun ExtrasScreen(
                 OutlinedButton(onClick = { confirmErase = true }, enabled = clipboardCount > 0) {
                     Text("Erase unpinned items ($clipboardCount)")
                 }
+                OnOffRow(
+                    label = "Add new screenshots to the clipboard",
+                    on = screenshotsOn,
+                    onChange = onScreenshots,
+                )
+                Text(
+                    "Android does not put screenshots on the clipboard, so the keyboard has to fetch " +
+                        "them from the phone's gallery. For that Android asks you to let KeyBuilder " +
+                        "see your photos; choose \"Allow all\" (with \"Select photos\" it cannot see new " +
+                        "screenshots). It only ever looks at new screenshots, copies them into the " +
+                        "clipboard history on this phone, and sends nothing anywhere. It needs the " +
+                        "clipboard history to be on, and starts with screenshots taken from now.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (screenshotNote != null) WarningBox(listOf(screenshotNote))
 
                 SectionTitle("GIF search")
                 Text(
