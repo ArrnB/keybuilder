@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
                 var giphyKey by remember { mutableStateOf(AppSettings.giphyKey(context)) }
                 var clipboardOn by remember { mutableStateOf(AppSettings.clipboardEnabled(context)) }
                 var clipboardCount by remember { mutableStateOf(0) }
+                var typing by remember { mutableStateOf(AppSettings.typing(context)) }
 
                 // The keyboard in use: the one you type with and the one the editors change.
                 val keyboard = keyboards.firstOrNull { it.id == activeId } ?: keyboards.first()
@@ -160,6 +161,11 @@ class MainActivity : ComponentActivity() {
                         onEraseClipboard = {
                             ClipboardStore.save(context, ClipHistory())
                             clipboardCount = 0
+                        },
+                        typing = typing,
+                        onTyping = { changed ->
+                            AppSettings.setTyping(context, changed)
+                            typing = changed
                         },
                         giphyKey = giphyKey,
                         onGiphyKey = { key ->
@@ -298,7 +304,7 @@ private fun HomeScreen(
             OutlinedButton(onClick = { onOpen(SCREEN_KEYBOARDS) }) {
                 Text("My keyboards ($keyboardCount)")
             }
-            OutlinedButton(onClick = { onOpen(SCREEN_EXTRAS) }) { Text("Clipboard and GIFs") }
+            OutlinedButton(onClick = { onOpen(SCREEN_EXTRAS) }) { Text("Settings") }
             Text(
                 "Changes are saved as you make them, and the real keyboard shows them the next time it opens.",
                 style = MaterialTheme.typography.bodySmall,

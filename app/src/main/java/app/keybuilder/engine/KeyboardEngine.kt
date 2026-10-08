@@ -29,6 +29,12 @@ sealed interface Effect {
     data class Commit(val text: String) : Effect
     data object DeleteBackward : Effect
     data object Enter : Effect
+
+    /** Move the cursor one step: "left", "right", "up" or "down". */
+    data class MoveCursor(val direction: String) : Effect
+
+    /** "copy", "paste", "cut" or "selectAll". */
+    data class Command(val command: String) : Effect
 }
 
 data class PressResult(
@@ -75,6 +81,8 @@ object KeyboardEngine {
                         shift = if (state.shift == ShiftState.LOCKED) ShiftState.LOCKED else ShiftState.OFF,
                     )
                 )
+            is KeyAction.Arrow -> PressResult(state, listOf(Effect.MoveCursor(action.direction)))
+            is KeyAction.Command -> PressResult(state, listOf(Effect.Command(action.command)))
             is KeyAction.OpenPanel ->
                 if (action.panel in PANELS) PressResult(state.copy(panel = action.panel)) else PressResult(state)
             KeyAction.None -> PressResult(state)
@@ -104,9 +112,54 @@ object KeyboardEngine {
                     text = text.substring(0, text.offsetByCodePoints(text.length, -1))
                 }
                 Effect.Enter -> submitted = true
+                is Effect.MoveCursor, is Effect.Command -> Unit // the search words have no cursor
             }
         }
         return text to submitted
+    }
+
+    /**
+     * The choices offered when [key] is held down, as they should be shown and typed:
+     * in capitals while shift is on.
+     */
+    fun alternatesFor(def: KeyboardDef, state: KeyboardState, key: KeyDef): List<String> {
+        if (key.alternates.isEmpty()) return emptyList()
+        val capitals = key.action == KeyAction.TypeLabel && effectiveShift(def, state) != ShiftState.OFF
+        return if (capitals) key.alternates.map { it.uppercase() } else key.alternates
+    }
+
+    /** Types a long-press choice. Like any typed character it uses up a single shift. */
+    fun pressAlternate(state: KeyboardState, text: String): PressResult = typed(state, text)
+
+    /** In a box that only takes numbers, start on the keyboard's number layer if it has one. */
+    fun stateForField(def: KeyboardDef, state: KeyboardState, numbersOnly: Boolean): KeyboardState {
+        val layer = def.numberLayer
+        return if (numbersOnly && layer != null && def.layer(layer) != null) state.copy(layerId = layer) else state
+    }
+
+    /**
+     * The "two spaces make a full stop" rule. [beforeCursor] is the text just before the
+     * cursor, ending with the first space; true means the second space should turn
+     * "word " into "word. ".
+     */
+    fun doubleSpaceMakesFullStop(beforeCursor: String): Boolean {
+        if (beforeCursor.length < 2 || beforeCursor.last() != ' ') return false
+        val previous = beforeCursor[beforeCursor.length - 2]
+        return previous.isLetterOrDigit() || previous in ")]}\"'"
+    }
+
+    /** Where the pop-up above a key starts, so it is centred on the key but stays on screen. */
+    fun popupLeft(keyLeft: Float, keyWidth: Float, count: Int, cellWidth: Float, keyboardWidth: Float): Float {
+        val width = count * cellWidth
+        val centred = keyLeft + keyWidth / 2f - width / 2f
+        return centred.coerceIn(0f, (keyboardWidth - width).coerceAtLeast(0f))
+    }
+
+    /** Which choice is under the finger. Sliding past either end keeps the last one on that side. */
+    fun popupIndex(fingerX: Float, popupLeft: Float, cellWidth: Float, count: Int): Int {
+        if (count <= 0 || cellWidth <= 0f) return 0
+        if (fingerX < popupLeft) return 0
+        return ((fingerX - popupLeft) / cellWidth).toInt().coerceIn(0, count - 1)
     }
 
     /**

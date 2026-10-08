@@ -3,9 +3,10 @@
 An Android keyboard you design yourself. The keyboard is **data**: a layout file says which
 keys exist, what they do and how they look, and the app draws whatever the file says.
 
-**Phase 4** adds the shortcut strip and three panels: clipboard history, GIF search and
-emoji. Phase 1 was the working keyboard, phase 2 the style editor, phase 3 the layout
-editor and several saved keyboards.
+**Phase 5** is about how typing feels: long-press choices, key pop-ups, arrow and
+copy/paste keys, vibration, a number layer for number boxes, and a few panel extras.
+Earlier phases: 1 the working keyboard, 2 the style editor, 3 the layout editor and
+several saved keyboards, 4 the shortcut strip with clipboard, GIF and emoji panels.
 
 ## Run it
 
@@ -25,6 +26,14 @@ Keyboard
 - QWERTY letters, two symbol layers, space, enter, backspace (hold to repeat)
 - Shift: tap for one capital, double tap for caps lock, automatic capital at the start of a sentence
 - Enter does the right thing per text field (new line, search, send, next)
+- Long-press choices: hold a key, slide to a choice, lift to type it. The first choice is
+  shown small in the key's corner. The built-in keyboard has 1 to 0 on the top row and
+  punctuation on the full stop
+- The pressed letter is shown enlarged above the key
+- Arrow keys (they repeat while held) and copy, paste, cut and select-all keys, as key types
+- A short vibration when a key is touched
+- Number boxes (phone, amount, PIN, date) open the layer you choose
+- Two spaces after a word type a full stop
 
 Shortcut strip and panels
 - A strip above the keys with **Clipboard**, **GIF** and **Emoji** buttons; each opens a panel
@@ -32,9 +41,10 @@ Shortcut strip and panels
 - Clipboard: keeps the last 30 things you copy, text and pictures. Tap to paste, pin to keep,
   remove, clear. Off until you turn it on. Anything a password manager marks as secret is skipped
 - GIF: trending GIFs, one-tap searches, and typed search (tap the search box and the keys type
-  into it). Tap a GIF to send it; where an app takes text only, a link is typed instead
-- Emoji: about 400 emoji in six groups, with a backspace key
-- Settings for all three: home screen > **Clipboard and GIFs**. GIF search needs your own free
+  into it), with "More GIFs" at the end of the list. Tap a GIF to send it; where an app takes
+  text only, a link is typed instead
+- Emoji: about 400 emoji in six groups plus the ones you used recently, with a backspace key
+- Settings for all three: home screen > **Settings**. GIF search needs your own free
   GIPHY key, entered there
 - A key can open a panel too ("Opens a panel" in the layout editor), and the strip can be hidden
 
@@ -43,10 +53,11 @@ Layout editor (home screen > **Edit keys**)
 - Add a key before or after, copy a key, delete a key
 - Change what is written on a key, and what it shows and types with shift
 - Choose what a key does: type its letter, type a text of any length (a snippet), shift,
-  backspace, enter, space, open a layer, open a panel, or nothing
+  backspace, enter, space, open a layer, open a panel, move the cursor, copy or paste, or nothing
+- Give a key long-press choices, or put 1 to 0 on a layer's top row in one tap
 - Key width, and a key's look: normal, function, accent, or an invisible gap
 - Rows: height, add, move up and down, delete
-- Layers: add, rename, copy, delete, and choose which one opens first
+- Layers: add, rename, copy, delete, choose which one opens first and which opens in number boxes
 - Undo, up to 50 steps; dragging a slider counts as one step
 - Warnings when a layer cannot be reached or left, a labelled key does nothing, or there is no backspace
 
@@ -59,15 +70,17 @@ Style editor (home screen > **Edit style**)
 - Eight ready-made looks; choosing one changes colours and key shape but keeps your sizes
 - Every colour, with a picker: sliders, quick choices, or type a colour code
 - Corner roundness, border thickness, key height, gap, letter size
-- Letters: plain, serif or typewriter, and bold
+- Letters: plain, serif or typewriter, bold, and whether keys show their corner hint
 - Single keys: tap a key in the preview and give it its own background, letter colour or size
 - Reset puts the style back without touching your keys
 
 Everything is saved automatically, and the real keyboard shows changes the next time it opens.
 
-Not in yet: dragging keys with a finger (keys move with buttons for now), long-press
-alternates, key pop-ups, vibration, number-field layouts, emoji search and skin tones,
-suggestions, autocorrect, swipe typing.
+Typing settings (home screen > **Settings**): vibration, the letter pop-up, and the
+double-space full stop can each be switched off.
+
+Not in yet: dragging keys with a finger in the editor (keys move with buttons for now),
+sharing keyboards as files, emoji search and skin tones, suggestions, autocorrect, swipe typing.
 
 ## Where things are
 
@@ -147,19 +160,26 @@ Change `qwerty.json`, run the app again, and the keyboard changes.
 | `width` | Relative width within the row | 1 |
 | `look` | `normal`, `function`, `accent` or `spacer` (an invisible gap) | `normal` |
 | `style` | Per-key `background`, `textColor`, `fontSizeSp` | theme values |
+| `alt` | Long-press choices, for example `["1", "!"]` (up to 8) | none |
 
 **Actions:** `"shift"`, `"backspace"`, `"enter"`, `"space"`, `"none"`,
 `{ "type": "text", "text": "any text" }`, `{ "type": "layer", "to": "layerId" }` and
-`{ "type": "panel", "to": "clipboard" }` (or `"gif"`, `"emoji"`).
+`{ "type": "panel", "to": "clipboard" }` (or `"gif"`, `"emoji"`),
+`{ "type": "arrow", "to": "left" }` (or `"right"`, `"up"`, `"down"`) and
+`{ "type": "command", "to": "copy" }` (or `"paste"`, `"cut"`, `"selectAll"`).
 
 **The strip:** `"toolbar": false` at the top level hides the shortcut strip (it is shown by default).
+
+**Number boxes:** `"numberLayer": "symbols"` at the top level names the layer that opens in
+boxes that only take numbers. Leave it out to always open the start layer.
 
 **A row** is a list of keys, or `{ "height": 1.5, "keys": [ ... ] }` for a taller or shorter row.
 
 **Theme fields:** `background`, `keyColor`, `functionKeyColor`, `accentColor`, `keyPressedColor`,
 `textColor`, `accentTextColor`, `borderColor` (colours as `#RRGGBB` or `#AARRGGBB`), and
 `borderWidthDp`, `cornerRadiusDp`, `keyHeightDp`, `keyGapDp`, `fontSizeSp` (numbers),
-`fontFamily` (`sans`, `serif` or `mono`) and `bold` (`true` or `false`).
+`fontFamily` (`sans`, `serif` or `mono`), `bold` and `hints` (`true` or `false`; hints are
+the small long-press characters in key corners).
 
 Shift only applies on layers that contain a shift key.
 
@@ -169,7 +189,7 @@ A mistake in the file produces a message such as
 ## Setting up GIF search
 
 1. Create a free API key on GIPHY's developer site (choose "API", not "SDK").
-2. In the app: **Clipboard and GIFs** > **GIPHY key**, and paste it.
+2. In the app: **Settings** > **GIPHY key**, and paste it.
 3. Open the keyboard in a chat app and tap **GIF**.
 
 A free key allows 100 searches an hour, which is plenty for your own use. Releasing the app
@@ -188,26 +208,35 @@ the Tenor API to outside developers on 30 June 2026). To switch provider later, 
 - The only things sent over the internet are the search words you type **in the GIF panel**
   (to GIPHY, with your key) and the request for the GIF you tap. All of it is in `net/Http.kt`.
 - The clipboard history is kept in the app's private storage and is never sent anywhere. It is
-  off until you turn it on, and it can be erased from **Clipboard and GIFs**.
+  off until you turn it on, and it can be erased from **Settings**.
+
+## Your existing keyboards
+
+Keyboards you already saved keep working and get pop-ups, vibration and the double-space
+rule straight away. Three things live in the keyboard's own data, so they are only on **new**
+keyboards until you add them: in **Edit keys**, tap "Put numbers on the top row" for the
+long-press digits, "Use in number boxes" on your symbols layer, and "Long-press choices"
+on any key you want to give choices to.
 
 ## How it was checked
 
-Phases 1 to 3 have been built and run. For phase 4, everything without Android code was
-compiled and its 87 tests passed: the engine, the layout and style rules, the clipboard
-history rules, the reading of GIPHY's answers (against a sample answer, not the live service),
-and the emoji list. The network helper was run against a local test server. The Android parts
-(the strip and panels, watching the clipboard, sending pictures to other apps, the settings
-screen) were written without access to the Android build tools, and GIF search could not be
-tried against GIPHY itself, so **phase 4 has not been built or run yet**. It also adds two
-libraries (Coil, for showing pictures and GIFs), so the first sync downloads them. If the
-build stops or something misbehaves on the phone, send the error text or a screenshot.
+Phases 1 to 4 have been built and run. For phase 5, everything without Android code was
+compiled and its 101 tests passed, including the rules behind every new feature: which
+long-press choice is under the finger, where the pop-up sits so it stays on screen, when two
+spaces make a full stop, and which layer a number box opens. The Android parts (the touch
+handling for long press and sliding, drawing the pop-up, vibration, cursor and copy/paste
+commands, the new editor controls) were written without access to the Android build tools,
+so **phase 5 has not been built or run yet**. The touch handling was rewritten for long press,
+which makes it the most likely place for a surprise; if keys misbehave or the build stops,
+send the error text or a screenshot.
 
 ## Roadmap
 
-5. **More special keys:** long-press alternates, arrows, copy and paste, dragging keys with a finger
-6. **Panel extras:** emoji search, recently used emoji and skin tones; more GIFs when you scroll
-   to the end; stickers
-7. **Polish:** vibration, key pop-ups, number-field layouts, landscape, light and dark variants
+6. **Editor extras:** dragging keys with a finger, sharing keyboards as files (export and import)
+7. **Panel extras:** emoji search and skin tones, stickers
+8. **Typing help:** word suggestions and autocorrect (a large project on its own), swipe on the
+   space bar to move the cursor
+9. **Polish:** key sounds, landscape tuning, light and dark variants of a keyboard
 
 `targetSdk` is 34 for now. Targeting 35 forces edge-to-edge drawing, which needs extra
 handling so the keyboard does not sit under the navigation bar.

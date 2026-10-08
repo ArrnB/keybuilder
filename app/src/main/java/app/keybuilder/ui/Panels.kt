@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import app.keybuilder.engine.ShiftState
 import app.keybuilder.model.ClipEntry
 import app.keybuilder.model.ClipHistory
+import app.keybuilder.model.EmojiCategory
 import app.keybuilder.model.EmojiData
 import app.keybuilder.model.GifItem
 import app.keybuilder.model.Giphy
@@ -269,9 +271,12 @@ fun GifPanel(
     query: String,
     hasKey: Boolean,
     imageLoader: ImageLoader,
+    canLoadMore: Boolean,
+    loadingMore: Boolean,
     onClose: () -> Unit,
     onSearchBox: () -> Unit,
     onQuickSearch: (String) -> Unit,
+    onMore: () -> Unit,
     onPick: (GifItem) -> Unit,
 ) {
     PanelFrame(theme = theme, heightDp = heightDp, title = "GIFs by GIPHY", onClose = onClose) { colors ->
@@ -279,7 +284,7 @@ fun GifPanel(
             PanelNote(
                 colors,
                 "GIF search needs a free GIPHY key. Open the KeyBuilder app, choose " +
-                    "\"Clipboard and GIFs\", and paste your key there.",
+                    "Settings, and paste your key there.",
             )
         } else {
             // Looks like a search box. Tapping it brings the keys back so you can type the words.
@@ -336,6 +341,22 @@ fun GifPanel(
                                 .clickable { onPick(gif) },
                         )
                     }
+                    if (canLoadMore) {
+                        // One cell across the whole width at the end of the list.
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                PanelChip(
+                                    text = if (loadingMore) "Loading" else "More GIFs",
+                                    colors = colors,
+                                    onClick = onMore,
+                                    strong = true,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -382,27 +403,34 @@ fun GifSearchBar(theme: Theme, query: String, onCancel: () -> Unit, onSearch: ()
 fun EmojiPanel(
     theme: Theme,
     heightDp: Float,
+    recent: List<String>,
     onClose: () -> Unit,
     onBackspace: () -> Unit,
     onPick: (String) -> Unit,
 ) {
-    var category by remember { mutableStateOf(0) }
+    // The recent list as it was when the panel opened, so it does not reshuffle under your finger.
+    val shownRecent = remember { recent }
+    val groups = remember { listOf(EmojiCategory("Recent", shownRecent)) + EmojiData.categories }
+    // Start on Recent when there is something in it, otherwise on the first real group.
+    var category by remember { mutableStateOf(if (shownRecent.isEmpty()) 1 else 0) }
+
     PanelFrame(theme = theme, heightDp = heightDp, title = "Emoji", onClose = onClose, onBackspace = onBackspace) { colors ->
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            EmojiData.categories.forEachIndexed { index, group ->
+            groups.forEachIndexed { index, group ->
                 item {
                     PanelChip(group.name, colors, onClick = { category = index }, selected = index == category)
                 }
             }
         }
-        // key(...) starts each group scrolled to its top.
-        key(category) {
+        if (groups[category].emoji.isEmpty()) {
+            PanelNote(colors, "The emoji you use show up here.")
+        } else key(category) { // key(...) starts each group scrolled to its top
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(44.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp),
                 contentPadding = PaddingValues(bottom = 8.dp),
             ) {
-                items(EmojiData.categories[category].emoji) { emoji ->
+                items(groups[category].emoji) { emoji ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()

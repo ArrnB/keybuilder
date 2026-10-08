@@ -5,6 +5,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.SystemClock
 import android.text.InputType
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -31,11 +32,15 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.keybuilder.engine.Effect
 import app.keybuilder.engine.KeyboardEngine
 import app.keybuilder.engine.KeyboardState
+import app.keybuilder.engine.PressResult
 import app.keybuilder.model.ClipEntry
 import app.keybuilder.model.GifItem
 import app.keybuilder.model.KeyDef
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.LayoutRepository
+import app.keybuilder.model.addRecentEmoji
+import app.keybuilder.store.AppSettings
+import app.keybuilder.store.TypingSettings
 import app.keybuilder.ui.ClipboardPanel
 import app.keybuilder.ui.EmojiPanel
 import app.keybuilder.ui.GifPanel
@@ -76,6 +81,11 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
 
     private lateinit var clipboard: ClipboardController
     private lateinit var gif: GifController
+
+    /** Vibration, pop-ups and the double-space rule. Re-read every time the keyboard appears. */
+    private var typing by mutableStateOf(TypingSettings())
+
+    private var recentEmoji by mutableStateOf<List<String>>(emptyList())
 
     /** A line shown in the clipboard panel, for example when a picture cannot be pasted here. */
     private var clipboardMessage by mutableStateOf<String?>(null)
@@ -144,7 +154,15 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                     onCancel = { showPanel("gif") },
                     onSearch = { runGifSearch() },
                 )
-                KeyboardView(def = def, state = state, onKey = { handleKey(it) }, showToolbar = false)
+                KeyboardView(
+                    def = def,
+                    state = state,
+                    onKey = { handleKey(it) },
+                    showToolbar = false,
+                    onAlternate = { _, text -> handleAlternate(text) },
+                    onKeyDown = { keyTouched() },
+                    showPopups = typing.popups,
+                )
             }
 
             panel == "clipboard" -> ClipboardPanel(
@@ -172,6 +190,9 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 query = gif.query,
                 hasKey = gif.hasKey,
                 imageLoader = imageLoader,
+                canLoadMore = gif.canLoadMore,
+                loadingMore = gif.loadingMore,
+                onMore = { gif.loadMore() },
                 onClose = { showPanel(null) },
                 onSearchBox = {
                     // Bring the keys back, but send what they type to the search words.
@@ -186,8 +207,9 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 theme = def.theme,
                 heightDp = height,
                 onClose = { showPanel(null) },
+                recent = recentEmoji,
                 onBackspace = { currentInputConnection?.let { deleteBackward(it) } },
-                onPick = { currentInputConnection?.commitText(it, 1) },
+                onPick = { pickEmoji(it) },
             )
 
             else -> KeyboardView(
@@ -195,6 +217,9 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
                 state = state,
                 onKey = { handleKey(it) },
                 onOpenPanel = { showPanel(it) },
+                onAlternate = { _, text -> handleAlternate(text) },
+                onKeyDown = { keyTouched() },
+                showPopups = typing.popups,
             )
         }
     }
@@ -202,9 +227,13 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        typing = AppSettings.typing(this)
+        recentEmoji = AppSettings.recentEmoji(this)
         val reloaded = reloadIfChanged()
-        if (!restarting && !reloaded) {
-            keyboard?.let { state = KeyboardEngine.initialState(it) }
+        val def = keyboard
+        if (def != null && (!restarting || reloaded)) {
+            // A new text box: start on the first layer, or on the number layer where only numbers fit.
+            state = KeyboardEngine.stateForField(def, KeyboardEngine.initialState(def), isNumberBox(info))
         }
         if (!restarting) gif.typing = false
         clipboard.refresh()
@@ -230,7 +259,17 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
     private fun handleKey(key: KeyDef) {
         val def = keyboard ?: return
         val before = state
-        val result = KeyboardEngine.press(def, before, key, SystemClock.uptimeMillis())
+        carryOut(before, KeyboardEngine.press(def, before, key, SystemClock.uptimeMillis()))
+    }
+
+    /** A long-press choice was picked. */
+    private fun handleAlternate(text: String) {
+        val before = state
+        carryOut(before, KeyboardEngine.pressAlternate(before, text))
+    }
+
+    /** Takes what the engine decided and makes it happen. */
+    private fun carryOut(before: KeyboardState, result: PressResult) {
         state = result.state
 
         // A key that opens a panel.
@@ -251,12 +290,69 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
         val connection = currentInputConnection ?: return
         for (effect in result.effects) {
             when (effect) {
-                is Effect.Commit -> connection.commitText(effect.text, 1)
+                is Effect.Commit -> commit(connection, effect.text)
                 Effect.DeleteBackward -> deleteBackward(connection)
                 Effect.Enter -> sendEnter(connection)
+                is Effect.MoveCursor -> moveCursor(effect.direction)
+                is Effect.Command -> runCommand(connection, effect.command)
             }
         }
         if (result.effects.isNotEmpty() || result.state.layerId != before.layerId) syncAutoCaps()
+    }
+
+    private fun commit(connection: InputConnection, text: String) {
+        if (text == " " && typing.doubleSpace) {
+            // "word" + space + space becomes "word. "
+            val before = connection.getTextBeforeCursor(2, 0)?.toString().orEmpty()
+            if (KeyboardEngine.doubleSpaceMakesFullStop(before)) {
+                connection.deleteSurroundingText(1, 0)
+                connection.commitText(". ", 1)
+                return
+            }
+        }
+        connection.commitText(text, 1)
+    }
+
+    /** Arrow keys are sent as real key presses, which every text box understands. */
+    private fun moveCursor(direction: String) {
+        val code = when (direction) {
+            "left" -> KeyEvent.KEYCODE_DPAD_LEFT
+            "right" -> KeyEvent.KEYCODE_DPAD_RIGHT
+            "up" -> KeyEvent.KEYCODE_DPAD_UP
+            else -> KeyEvent.KEYCODE_DPAD_DOWN
+        }
+        sendDownUpKeyEvents(code)
+    }
+
+    /** Copy, paste, cut and select all are the same commands as in the pop-up menu on selected text. */
+    private fun runCommand(connection: InputConnection, command: String) {
+        val id = when (command) {
+            "copy" -> android.R.id.copy
+            "paste" -> android.R.id.paste
+            "cut" -> android.R.id.cut
+            else -> android.R.id.selectAll
+        }
+        connection.performContextMenuAction(id)
+    }
+
+    /** Called the moment a key is touched. */
+    private fun keyTouched() {
+        if (typing.vibrate) {
+            window?.window?.decorView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        }
+    }
+
+    /** Boxes for phone numbers, amounts, PINs and dates. */
+    private fun isNumberBox(info: EditorInfo?): Boolean =
+        when ((info?.inputType ?: 0) and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_NUMBER, InputType.TYPE_CLASS_PHONE, InputType.TYPE_CLASS_DATETIME -> true
+            else -> false
+        }
+
+    private fun pickEmoji(emoji: String) {
+        currentInputConnection?.commitText(emoji, 1)
+        recentEmoji = addRecentEmoji(recentEmoji, emoji)
+        AppSettings.setRecentEmoji(this, recentEmoji)
     }
 
     private fun deleteBackward(connection: InputConnection) {

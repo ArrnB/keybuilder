@@ -35,11 +35,12 @@ object Giphy {
     /** Words offered as one-tap searches. */
     val QUICK_SEARCHES = listOf("hello", "thanks", "yes", "no", "lol", "love", "happy", "sad", "wow", "ok", "bye", "congrats")
 
-    fun trendingUrl(apiKey: String): String =
-        "$BASE/trending?api_key=${encode(apiKey.trim())}&limit=$PAGE_SIZE&rating=g"
+    /** [offset] is how many GIFs to skip: 0 for the first page, PAGE_SIZE for the second... */
+    fun trendingUrl(apiKey: String, offset: Int = 0): String =
+        "$BASE/trending?api_key=${encode(apiKey.trim())}&limit=$PAGE_SIZE&rating=g&offset=$offset"
 
-    fun searchUrl(apiKey: String, query: String): String =
-        "$BASE/search?api_key=${encode(apiKey.trim())}&q=${encode(query.trim())}&limit=$PAGE_SIZE&rating=g"
+    fun searchUrl(apiKey: String, query: String, offset: Int = 0): String =
+        "$BASE/search?api_key=${encode(apiKey.trim())}&q=${encode(query.trim())}&limit=$PAGE_SIZE&rating=g&offset=$offset"
 
     /** Reads GIPHY's answer. GIFs with missing parts are skipped; nonsense gives an empty list. */
     fun parse(json: String): List<GifItem> {
@@ -68,7 +69,7 @@ object Giphy {
 
     /** What to tell the user when GIPHY answers with an error number. */
     fun errorMessage(httpCode: Int): String = when (httpCode) {
-        401, 403 -> "GIPHY did not accept the key. Check it in the app under Clipboard and GIFs."
+        401, 403 -> "GIPHY did not accept the key. Check it in the app's Settings."
         429 -> "GIPHY's hourly limit for this key is used up. Try again later."
         else -> "GIPHY answered with error $httpCode."
     }

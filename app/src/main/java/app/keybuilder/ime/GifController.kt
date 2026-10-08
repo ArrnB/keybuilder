@@ -42,6 +42,13 @@ class GifController(private val context: Context, private val scope: CoroutineSc
     var hasKey by mutableStateOf(false)
         private set
 
+    /** True when GIPHY probably has more GIFs for these words than are shown. */
+    var canLoadMore by mutableStateOf(false)
+        private set
+
+    var loadingMore by mutableStateOf(false)
+        private set
+
     private var loadedFor: String? = null
     private var job: Job? = null
 
@@ -61,6 +68,7 @@ class GifController(private val context: Context, private val scope: CoroutineSc
         val url = if (wanted.isEmpty()) Giphy.trendingUrl(key) else Giphy.searchUrl(key, wanted)
 
         job?.cancel() // a newer search replaces one still running
+        loadingMore = false
         job = scope.launch {
             loading = true
             message = null
@@ -78,7 +86,40 @@ class GifController(private val context: Context, private val scope: CoroutineSc
                 else -> {
                     gifs = Giphy.parse(result.body)
                     loadedFor = wanted
+                    canLoadMore = gifs.size >= Giphy.PAGE_SIZE
                     if (gifs.isEmpty()) message = "Nothing found for \"$wanted\"."
+                }
+            }
+        }
+    }
+
+    /** Fetches the next batch for the same words and adds it to the end of the list. */
+    fun loadMore() {
+        if (loading || loadingMore || !canLoadMore) return
+        val key = AppSettings.giphyKey(context)
+        if (key.isEmpty()) return
+        val wanted = query
+        val skip = gifs.size
+        val url = if (wanted.isEmpty()) Giphy.trendingUrl(key, skip) else Giphy.searchUrl(key, wanted, skip)
+
+        loadingMore = true
+        job = scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    httpGetText(url)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            loadingMore = false
+            when {
+                result == null -> message = "No connection. Check the internet and try again."
+                !result.ok -> message = Giphy.errorMessage(result.code)
+                else -> {
+                    val more = Giphy.parse(result.body)
+                    val known = gifs.map { it.id }.toSet()
+                    gifs = gifs + more.filter { it.id !in known }
+                    canLoadMore = more.size >= Giphy.PAGE_SIZE
                 }
             }
         }

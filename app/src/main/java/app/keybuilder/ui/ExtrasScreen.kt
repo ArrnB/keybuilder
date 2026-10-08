@@ -3,6 +3,7 @@ package app.keybuilder.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,12 +20,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.keybuilder.model.KeyboardDef
+import app.keybuilder.store.TypingSettings
+
+/** A setting that is either on or off: its name, then On and Off. */
+@Composable
+private fun OnOffRow(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Pill("On", selected = on, onClick = { onChange(true) })
+        Pill("Off", selected = !on, onClick = { onChange(false) })
+    }
+}
 
 /**
- * Settings for the shortcut strip and its three panels: clipboard, GIFs and emoji.
+ * Settings for typing, the shortcut strip and its three panels: clipboard, GIFs and emoji.
  * Like the other screens it only shows values and reports what was tapped;
  * MainActivity does the storing.
  */
@@ -37,6 +54,8 @@ fun ExtrasScreen(
     clipboardCount: Int,
     onClipboardOn: (Boolean) -> Unit,
     onEraseClipboard: () -> Unit,
+    typing: TypingSettings,
+    onTyping: (TypingSettings) -> Unit,
     giphyKey: String,
     onGiphyKey: (String) -> Unit,
     onOpenGiphySite: () -> Unit,
@@ -50,7 +69,7 @@ fun ExtrasScreen(
 
     Scaffold { inner ->
         Column(modifier = Modifier.fillMaxSize().padding(inner)) {
-            ScreenHeader(title = "Clipboard and GIFs", onBack = onBack)
+            ScreenHeader(title = "Settings", onBack = onBack)
 
             Column(
                 modifier = Modifier
@@ -60,6 +79,28 @@ fun ExtrasScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                SectionTitle("Typing")
+                Text("These apply to every keyboard.", style = MaterialTheme.typography.bodyMedium)
+                OnOffRow(
+                    label = "Vibrate when a key is touched",
+                    on = typing.vibrate,
+                    onChange = { onTyping(typing.copy(vibrate = it)) },
+                )
+                OnOffRow(
+                    label = "Show the letter above a pressed key",
+                    on = typing.popups,
+                    onChange = { onTyping(typing.copy(popups = it)) },
+                )
+                OnOffRow(
+                    label = "Two spaces type a full stop",
+                    on = typing.doubleSpace,
+                    onChange = { onTyping(typing.copy(doubleSpace = it)) },
+                )
+                Text(
+                    "Vibration also needs \"touch feedback\" to be on in the phone's own sound settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
                 SectionTitle("Shortcut strip")
                 Text(
                     "The strip above the keys with the Clipboard, GIF and Emoji buttons. This setting " +

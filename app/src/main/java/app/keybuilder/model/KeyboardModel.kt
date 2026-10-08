@@ -18,6 +18,8 @@ data class KeyboardDef(
     val layers: List<Layer>,
     /** Show the strip of shortcuts (clipboard, GIF, emoji) above the keys. */
     val toolbar: Boolean = true,
+    /** The layer to open in boxes that only take numbers (phone, amount, PIN), or null for the start layer. */
+    val numberLayer: String? = null,
 ) {
     fun layer(id: String): Layer? = layers.firstOrNull { it.id == id }
 }
@@ -45,6 +47,8 @@ data class KeyDef(
     val look: KeyLook = KeyLook.NORMAL,
     /** Optional per-key overrides of the theme. */
     val style: KeyStyle? = null,
+    /** Extra characters offered when the key is held down. The first one is shown as a small hint. */
+    val alternates: List<String> = emptyList(),
 )
 
 /** What happens when a key is tapped. */
@@ -66,6 +70,12 @@ sealed interface KeyAction {
     /** Opens one of the PANELS in place of the keys. */
     data class OpenPanel(val panel: String) : KeyAction
 
+    /** Moves the cursor one step in one of the ARROWS directions. Repeats while held. */
+    data class Arrow(val direction: String) : KeyAction
+
+    /** Runs one of the COMMANDS (copy, paste...) on the text box. */
+    data class Command(val command: String) : KeyAction
+
     /** Does nothing. */
     data object None : KeyAction
 }
@@ -79,6 +89,21 @@ fun panelName(id: String): String = when (id) {
     "emoji" -> "Emoji"
     else -> id
 }
+
+val ARROWS = listOf("left", "right", "up", "down")
+
+val COMMANDS = listOf("copy", "paste", "cut", "selectAll")
+
+fun commandName(id: String): String = when (id) {
+    "copy" -> "Copy"
+    "paste" -> "Paste"
+    "cut" -> "Cut"
+    "selectAll" -> "Select all"
+    else -> id
+}
+
+/** How many long-press choices a key can have. */
+const val MAX_ALTERNATES = 8
 
 /** Height of the shortcut strip in dp. */
 const val TOOLBAR_HEIGHT_DP = 42f
@@ -117,6 +142,8 @@ data class Theme(
     /** One of FONT_FAMILIES. */
     val fontFamily: String = "sans",
     val bold: Boolean = false,
+    /** Show a key's first long-press choice as a small character in its corner. */
+    val hints: Boolean = true,
 )
 
 /** The letter styles a theme can use, in the order they are offered. */

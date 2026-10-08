@@ -72,7 +72,13 @@ object LayoutJson {
             }
         }
 
+        val numberLayer = root.string("numberLayer", "file")
+        if (numberLayer != null && numberLayer !in ids) {
+            fail("file", "\"numberLayer\" is \"$numberLayer\" but no layer has that id")
+        }
+
         return KeyboardDef(
+            numberLayer = numberLayer,
             id = root.string("id", "file") ?: "keyboard",
             name = root.string("name", "file") ?: "Keyboard",
             startLayer = startLayer,
@@ -126,9 +132,21 @@ object LayoutJson {
                 width = width,
                 look = look,
                 style = (el.field("style") as? JsonObject)?.let { parseStyle(it, where) },
+                alternates = parseAlternates(el, where),
             )
         }
         else -> fail(where, "must be text in quotes or an object in { }")
+    }
+
+    private fun parseAlternates(key: JsonObject, where: String): List<String> {
+        val el = key.field("alt") ?: return emptyList()
+        if (el !is JsonArray) fail(where, "\"alt\" must be a list in [ ], for example [\"1\", \"!\"]")
+        return el.map { item ->
+            if (item !is JsonPrimitive || !item.isString || item.content.isEmpty()) {
+                fail(where, "every entry of \"alt\" must be text in quotes")
+            }
+            item.content
+        }.distinct().take(MAX_ALTERNATES)
     }
 
     private fun parseAction(el: JsonElement, where: String): KeyAction {
@@ -155,6 +173,16 @@ object LayoutJson {
             "text" -> KeyAction.Text(
                 obj?.string("text", where) ?: fail(where, "a \"text\" action needs a \"text\" value")
             )
+            "arrow" -> {
+                val direction = obj?.string("to", where) ?: fail(where, "an \"arrow\" action needs \"to\" with a direction")
+                if (direction !in ARROWS) fail(where, "unknown direction \"$direction\" (use ${ARROWS.joinToString()})")
+                KeyAction.Arrow(direction)
+            }
+            "command" -> {
+                val command = obj?.string("to", where) ?: fail(where, "a \"command\" action needs \"to\" with the command")
+                if (command !in COMMANDS) fail(where, "unknown command \"$command\" (use ${COMMANDS.joinToString()})")
+                KeyAction.Command(command)
+            }
             "panel" -> {
                 val panel = obj?.string("to", where) ?: fail(where, "a \"panel\" action needs \"to\" with the panel name")
                 if (panel !in PANELS) fail(where, "unknown panel \"$panel\" (use ${PANELS.joinToString()})")
@@ -194,6 +222,7 @@ object LayoutJson {
                 if (it !in FONT_FAMILIES) fail(where, "\"fontFamily\" must be one of ${FONT_FAMILIES.joinToString()}, not \"$it\"")
             } ?: d.fontFamily,
             bold = obj.boolean("bold", where) ?: d.bold,
+            hints = obj.boolean("hints", where) ?: d.hints,
         )
     }
 
@@ -208,6 +237,7 @@ object LayoutJson {
         put("name", def.name)
         put("startLayer", def.startLayer)
         put("toolbar", def.toolbar)
+        def.numberLayer?.let { put("numberLayer", it) }
         put("theme", themeElement(def.theme))
         put("layers", buildJsonArray {
             for (layer in def.layers) {
@@ -243,6 +273,9 @@ object LayoutJson {
                     style.fontSizeSp?.let { put("fontSizeSp", it) }
                 })
             }
+            if (key.alternates.isNotEmpty()) {
+                put("alt", buildJsonArray { key.alternates.forEach { add(it) } })
+            }
         }
     }
 
@@ -256,6 +289,14 @@ object LayoutJson {
         is KeyAction.Text -> buildJsonObject {
             put("type", "text")
             put("text", action.text)
+        }
+        is KeyAction.Arrow -> buildJsonObject {
+            put("type", "arrow")
+            put("to", action.direction)
+        }
+        is KeyAction.Command -> buildJsonObject {
+            put("type", "command")
+            put("to", action.command)
         }
         is KeyAction.OpenPanel -> buildJsonObject {
             put("type", "panel")
@@ -283,6 +324,7 @@ object LayoutJson {
         put("fontSizeSp", t.fontSizeSp)
         put("fontFamily", t.fontFamily)
         put("bold", t.bold)
+        put("hints", t.hints)
     }
 
     // ---------------------------------------------------------------- helpers

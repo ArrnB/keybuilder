@@ -223,6 +223,8 @@ private fun ThemeControls(theme: Theme, onTheme: (Theme) -> Unit) {
             )
         }
         Pill("Bold", selected = theme.bold, onClick = { onTheme(theme.copy(bold = !theme.bold)) })
+        // The small character in a key's corner that shows its first long-press choice.
+        Pill("Corner hints", selected = theme.hints, onClick = { onTheme(theme.copy(hints = !theme.hints)) })
     }
 
     val field = editing

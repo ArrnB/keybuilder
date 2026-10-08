@@ -47,6 +47,7 @@ fun KeyDef.describe(): String = when {
     action == KeyAction.Backspace -> "backspace"
     action == KeyAction.Enter -> "enter"
     action == KeyAction.Space -> "space"
+    action is KeyAction.Arrow -> "arrow ${action.direction}"
     else -> "blank key"
 }
 

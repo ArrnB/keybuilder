@@ -141,6 +141,8 @@ enum class ActionKind(val label: String) {
     SPACE("Space"),
     LAYER("Opens a layer"),
     PANEL("Opens a panel"),
+    ARROW("Moves the cursor"),
+    COMMAND("Copy or paste"),
     NONE("Nothing"),
 }
 
@@ -153,6 +155,8 @@ fun KeyAction.kind(): ActionKind = when (this) {
     KeyAction.Space -> ActionKind.SPACE
     is KeyAction.SwitchLayer -> ActionKind.LAYER
     is KeyAction.OpenPanel -> ActionKind.PANEL
+    is KeyAction.Arrow -> ActionKind.ARROW
+    is KeyAction.Command -> ActionKind.COMMAND
     KeyAction.None -> ActionKind.NONE
 }
 
@@ -199,9 +203,71 @@ fun KeyboardDef.withActionKind(pos: KeyPos, kind: ActionKind): KeyboardDef = wit
                 look = if (plain) KeyLook.FUNCTION else key.look,
             )
         }
+        ActionKind.ARROW -> key.copy(
+            action = KeyAction.Arrow(ARROWS.first()), label = "", shiftLabel = null,
+            look = if (plain) KeyLook.FUNCTION else key.look,
+        )
+        ActionKind.COMMAND -> {
+            val command = "paste"
+            key.copy(
+                action = KeyAction.Command(command),
+                label = if (placeholder || key.label.isEmpty()) commandName(command) else key.label,
+                shiftLabel = null,
+                look = if (plain) KeyLook.FUNCTION else key.look,
+            )
+        }
         ActionKind.NONE -> key.copy(action = KeyAction.None, shiftLabel = null)
     }
 }
+
+fun KeyboardDef.withArrowDirection(pos: KeyPos, direction: String): KeyboardDef = withKey(pos) { key ->
+    if (key.action !is KeyAction.Arrow || direction !in ARROWS) key else key.copy(action = KeyAction.Arrow(direction))
+}
+
+/** Changes which command a command key runs. If the key was named after the old command, the name follows. */
+fun KeyboardDef.withCommand(pos: KeyPos, command: String): KeyboardDef = withKey(pos) { key ->
+    val action = key.action
+    if (action !is KeyAction.Command || command !in COMMANDS) key
+    else key.copy(
+        action = KeyAction.Command(command),
+        label = if (key.label == commandName(action.command)) commandName(command) else key.label,
+    )
+}
+
+// ------------------------------------------------------------------ long-press choices
+
+/** Turns what was typed in the editor ("1 ! é") into a clean list: no blanks, no repeats, not too many. */
+fun parseAlternatesText(text: String): List<String> =
+    text.split(Regex("\\s+")).filter { it.isNotEmpty() }.distinct().take(MAX_ALTERNATES)
+
+fun formatAlternates(alternates: List<String>): String = alternates.joinToString(" ")
+
+fun KeyboardDef.withAlternates(pos: KeyPos, alternates: List<String>): KeyboardDef =
+    withKey(pos) { it.copy(alternates = alternates.filter { a -> a.isNotEmpty() }.distinct().take(MAX_ALTERNATES)) }
+
+/**
+ * Puts 1 2 3 ... 0 as the first long-press choice on the first ten typing keys of a
+ * layer's top row. Keys that already offer their digit are left alone.
+ */
+fun KeyboardDef.withNumbersOnTopRow(layerId: String): KeyboardDef {
+    val row = layer(layerId)?.rows?.firstOrNull() ?: return this
+    val digits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+    var next = 0
+    val keys = row.keys.map { key ->
+        val typing = key.action == KeyAction.TypeLabel && key.look != KeyLook.SPACER && key.label.isNotEmpty()
+        if (!typing || next >= digits.size) key
+        else {
+            val digit = digits[next++]
+            if (digit in key.alternates) key
+            else key.copy(alternates = (listOf(digit) + key.alternates).take(MAX_ALTERNATES))
+        }
+    }
+    return withRows(layerId) { rows -> rows.mapIndexed { i, r -> if (i == 0) r.copy(keys = keys) else r } }
+}
+
+/** Chooses the layer shown in number boxes. Null (or the layer it already is) switches that off. */
+fun KeyboardDef.withNumberLayer(id: String?): KeyboardDef =
+    if (id != null && layer(id) == null) this else copy(numberLayer = id)
 
 /** Points a panel key at another panel. If the key was named after the old panel, the name follows. */
 fun KeyboardDef.withPanelTarget(pos: KeyPos, panel: String): KeyboardDef = withKey(pos) { key ->
@@ -309,6 +375,7 @@ fun KeyboardDef.renameLayer(oldId: String, newName: String): KeyboardDef {
     if (layer(oldId) == null || newId == oldId || layerNameProblem(newId, renaming = oldId) != null) return this
     return copy(
         startLayer = if (startLayer == oldId) newId else startLayer,
+        numberLayer = if (numberLayer == oldId) newId else numberLayer,
         layers = layers.map { layer ->
             layer.copy(
                 id = if (layer.id == oldId) newId else layer.id,
@@ -340,7 +407,11 @@ fun KeyboardDef.deleteLayer(id: String): KeyboardDef {
             })
         })
     }
-    return copy(startLayer = if (startLayer == id) remaining.first().id else startLayer, layers = remaining)
+    return copy(
+        startLayer = if (startLayer == id) remaining.first().id else startLayer,
+        numberLayer = if (numberLayer == id) null else numberLayer,
+        layers = remaining,
+    )
 }
 
 fun KeyboardDef.withStartLayer(id: String): KeyboardDef = if (layer(id) == null) this else copy(startLayer = id)

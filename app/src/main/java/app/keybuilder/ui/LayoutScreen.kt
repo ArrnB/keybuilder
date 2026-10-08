@@ -22,7 +22,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.keybuilder.engine.KeyboardState
+import app.keybuilder.model.ARROWS
 import app.keybuilder.model.ActionKind
+import app.keybuilder.model.COMMANDS
 import app.keybuilder.model.Edit
 import app.keybuilder.model.EditHistory
 import app.keybuilder.model.KEY_WIDTH_MAX
@@ -33,11 +35,13 @@ import app.keybuilder.model.KeyLook
 import app.keybuilder.model.KeyPos
 import app.keybuilder.model.KeyboardDef
 import app.keybuilder.model.Layer
+import app.keybuilder.model.MAX_ALTERNATES
 import app.keybuilder.model.PANELS
 import app.keybuilder.model.ROW_HEIGHT_MAX
 import app.keybuilder.model.ROW_HEIGHT_MIN
 import app.keybuilder.model.addLayer
 import app.keybuilder.model.canDeleteKey
+import app.keybuilder.model.commandName
 import app.keybuilder.model.canDeleteLayer
 import app.keybuilder.model.canDeleteRow
 import app.keybuilder.model.deleteKey
@@ -46,6 +50,7 @@ import app.keybuilder.model.deleteRow
 import app.keybuilder.model.describe
 import app.keybuilder.model.duplicateKey
 import app.keybuilder.model.duplicateLayer
+import app.keybuilder.model.formatAlternates
 import app.keybuilder.model.formatNumber
 import app.keybuilder.model.insertKey
 import app.keybuilder.model.insertRow
@@ -56,21 +61,27 @@ import app.keybuilder.model.moveKey
 import app.keybuilder.model.moveKeyToRow
 import app.keybuilder.model.moveRow
 import app.keybuilder.model.panelName
+import app.keybuilder.model.parseAlternatesText
 import app.keybuilder.model.renameLayer
 import app.keybuilder.model.warnings
 import app.keybuilder.model.withActionKind
+import app.keybuilder.model.withAlternates
+import app.keybuilder.model.withArrowDirection
+import app.keybuilder.model.withCommand
 import app.keybuilder.model.withKeyLabel
 import app.keybuilder.model.withKeyLook
 import app.keybuilder.model.withKeyText
 import app.keybuilder.model.withKeyWidth
 import app.keybuilder.model.withLayerTarget
+import app.keybuilder.model.withNumberLayer
+import app.keybuilder.model.withNumbersOnTopRow
 import app.keybuilder.model.withPanelTarget
 import app.keybuilder.model.withRowHeight
 import app.keybuilder.model.withShiftLabel
 import app.keybuilder.model.withStartLayer
 
 /** The pop-ups this screen can show. Only one is open at a time. */
-private enum class LayoutDialog { LABEL, SHIFT_LABEL, KEY_TEXT, NEW_LAYER, RENAME_LAYER, DELETE_LAYER }
+private enum class LayoutDialog { LABEL, SHIFT_LABEL, KEY_TEXT, ALTERNATES, NEW_LAYER, RENAME_LAYER, DELETE_LAYER }
 
 /**
  * The layout editor: which keys exist, where they sit and what they do.
@@ -159,6 +170,12 @@ fun LayoutScreen(
                     },
                     onDelete = { dialog = LayoutDialog.DELETE_LAYER },
                     onMakeFirst = { commit(null, keyboard.withStartLayer(layer.id)) },
+                    onNumberBoxes = {
+                        // Tapping it on the layer that already has the job switches the job off.
+                        val next = if (keyboard.numberLayer == layer.id) null else layer.id
+                        commit(null, keyboard.withNumberLayer(next))
+                    },
+                    onNumbersOnTop = { commit(null, keyboard.withNumbersOnTopRow(layer.id)) },
                 )
 
                 if (pos == null || keyDef == null) {
@@ -219,6 +236,21 @@ fun LayoutScreen(
             onDismiss = closeDialog,
             onDone = { text ->
                 commit(null, keyboard.withShiftLabel(pos, text))
+                closeDialog()
+            },
+        )
+    }
+    if (open == LayoutDialog.ALTERNATES && pos != null && keyDef != null) {
+        TextInputDialog(
+            title = "Long-press choices",
+            initial = formatAlternates(keyDef.alternates),
+            fieldLabel = "Choices",
+            hint = "What the key offers when you hold it down. Put a space between them, for example: " +
+                "1 ! é   The first is shown small in the key's corner. Up to $MAX_ALTERNATES. " +
+                "Leave it empty for none.",
+            onDismiss = closeDialog,
+            onDone = { text ->
+                commit(null, keyboard.withAlternates(pos, parseAlternatesText(text)))
                 closeDialog()
             },
         )
@@ -304,8 +336,11 @@ private fun LayerControls(
     onCopy: () -> Unit,
     onDelete: () -> Unit,
     onMakeFirst: () -> Unit,
+    onNumberBoxes: () -> Unit,
+    onNumbersOnTop: () -> Unit,
 ) {
     val isFirst = layer.id == keyboard.startLayer
+    val forNumbers = layer.id == keyboard.numberLayer
 
     SectionTitle("Layer")
     ScrollRow {
@@ -324,6 +359,16 @@ private fun LayerControls(
             onClick = onMakeFirst,
             enabled = !isFirst,
         )
+    }
+    ScrollRow {
+        // Phone-number, amount and PIN boxes open this layer instead of the first one.
+        Pill(
+            text = if (forNumbers) "Opens in number boxes" else "Use in number boxes",
+            selected = forNumbers,
+            onClick = onNumberBoxes,
+        )
+        // Long-press 1 2 3 ... 0 on the first ten keys of this layer's top row.
+        Pill("Put numbers on the top row", selected = false, onClick = onNumbersOnTop)
     }
 }
 
@@ -373,6 +418,14 @@ private fun KeyEditor(
             )
         }
 
+        if (kind != ActionKind.BACKSPACE && kind != ActionKind.ARROW) {
+            TextRow(
+                label = "Long-press choices",
+                value = formatAlternates(keyDef.alternates).ifEmpty { "none" },
+                onClick = { openDialog(LayoutDialog.ALTERNATES) },
+            )
+        }
+
         SectionTitle("What it does")
         ScrollRow {
             for (option in ActionKind.entries) {
@@ -389,6 +442,30 @@ private fun KeyEditor(
                 value = action.text.ifEmpty { "nothing yet" },
                 onClick = { openDialog(LayoutDialog.KEY_TEXT) },
             )
+        }
+        if (action is KeyAction.Arrow) {
+            Text("Which way", style = MaterialTheme.typography.bodyLarge)
+            ScrollRow {
+                for (direction in ARROWS) {
+                    Pill(
+                        text = direction.replaceFirstChar { it.uppercase() },
+                        selected = direction == action.direction,
+                        onClick = { commit(null, keyboard.withArrowDirection(pos, direction)) },
+                    )
+                }
+            }
+        }
+        if (action is KeyAction.Command) {
+            Text("Which command", style = MaterialTheme.typography.bodyLarge)
+            ScrollRow {
+                for (command in COMMANDS) {
+                    Pill(
+                        text = commandName(command),
+                        selected = command == action.command,
+                        onClick = { commit(null, keyboard.withCommand(pos, command)) },
+                    )
+                }
+            }
         }
         if (action is KeyAction.OpenPanel) {
             Text("Which panel it opens", style = MaterialTheme.typography.bodyLarge)

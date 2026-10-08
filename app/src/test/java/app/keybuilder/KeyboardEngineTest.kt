@@ -36,6 +36,7 @@ class KeyboardEngineTest {
                     is Effect.Commit -> text.append(effect.text)
                     Effect.DeleteBackward -> if (text.isNotEmpty()) text.deleteCharAt(text.length - 1)
                     Effect.Enter -> enters++
+                    else -> Unit
                 }
             }
             return this
