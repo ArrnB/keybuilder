@@ -115,6 +115,29 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
 
     private val scratch = Typo.Scratch()
 
+    /**
+     * The last look-alike search in the word list, kept because one keystroke needs it twice
+     * (for the suggestions and for autocorrect) and the finished word needs it again. The
+     * word list never changes, so this can only go stale when a different word is typed.
+     */
+    private var nearTyped: String? = null
+    private var nearFound: List<NearWord> = emptyList()
+
+    /**
+     * Word-list words within [limit] of [lower]. Searches once, at the widest limit any caller
+     * uses for this length, and narrows that down: a search with a wider limit finds every word
+     * a narrower one would, in the same order and with the same costs.
+     */
+    private fun lexiconNear(lower: String, limit: Float): List<NearWord> {
+        val widest = maxOf(offerLimit(lower.length), slipLimit(lower.length), SMALL_SLIP)
+        if (limit > widest) return lexicon.near(lower, limit, scratch)
+        if (nearTyped != lower) {
+            nearFound = lexicon.near(lower, widest, scratch)
+            nearTyped = lower
+        }
+        return if (limit >= widest) nearFound else nearFound.filter { it.cost <= limit + Typo.ROUNDING }
+    }
+
     /** Whether this person types mostly Hinglish. Worked out from the learned words now and then. */
     private var leaning: Boolean? = null
     private var learnedSinceCheck = 0
@@ -180,7 +203,7 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
         val solid = (lexicon.score(lower) ?: 0) >= RARE_BELOW || user.knows(lower)
         if (!solid && lower.length >= 3) {
             val limit = offerLimit(lower.length)
-            for (n in lexicon.near(lower, limit, scratch)) offer(n.word, n.score - SLIP * n.cost)
+            for (n in lexiconNear(lower, limit)) offer(n.word, n.score - SLIP * n.cost)
             for (n in user.near(lower, limit, scratch)) offer(n.word, userScore(n.score) - SLIP * n.cost)
         }
 
@@ -256,12 +279,12 @@ class SuggestionEngine(val lexicon: Lexicon, val user: UserWords = UserWords()) 
         if (known != null) {
             // A real word. Only a rare English one, one small slip from a far commoner one, is changed.
             if (known == 0 || known >= RARE_BELOW || lexicon.language(lower) != 'e') return emptyList()
-            allowed = lexicon.near(lower, SMALL_SLIP, scratch)
+            allowed = lexiconNear(lower, SMALL_SLIP)
                 .filter { !lexicon.isHinglishOnly(it.word) && it.score >= VERY_COMMON && it.score - known >= MUCH_COMMONER }
         } else {
             val limit = slipLimit(lower.length)
             val mine = user.near(lower, limit, scratch).map { NearWord(it.word, userScore(it.score).toInt(), it.cost) }
-            val all = lexicon.near(lower, limit, scratch) + mine
+            val all = lexiconNear(lower, limit) + mine
             val overall = all.maxByOrNull { value(it, context) } ?: return emptyList()
             // If the likeliest word is Hinglish, this may well be Hinglish spelt another way. Hands off.
             if (lexicon.isHinglishOnly(overall.word)) return emptyList()

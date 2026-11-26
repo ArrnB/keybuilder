@@ -557,4 +557,22 @@ class SuggestTest {
         val name = FieldRules.forField(text or FieldRules.VARIATION_PERSON_NAME, 0)
         assertEquals(FieldRules(suggest = true, correct = false, learn = true, shortcuts = true), name)
     }
+
+    // ------------------------------------------------------------------ the look-alike cache
+
+    @Test
+    fun autocorrectGivesTheSameAnswerWhetherOrNotSuggestionsRanFirst() {
+        // The engine keeps its last look-alike search. Reusing it must never change an answer.
+        val typos = listOf("teh", "recieve", "definately", "helo", "acommodate", "goverment", "tommorow", "nahi", "seperate")
+        for (typo in typos) {
+            val fresh = fix("so i said $typo")
+            val warmed = engine()
+            for (i in 1..typo.length) warmed.suggestions(at("so i said " + typo.take(i)), autocorrect = true)
+            assertEquals(typo, fresh, fix("so i said $typo", warmed))
+            // And the other way round: a correction first, then the suggestions.
+            val first = engine()
+            first.correction(at("so i said $typo"))
+            assertEquals(typo, words(engine().suggestions(at("so i said $typo"), true)), words(first.suggestions(at("so i said $typo"), true)))
+        }
+    }
 }
