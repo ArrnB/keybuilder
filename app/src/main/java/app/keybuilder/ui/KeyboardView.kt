@@ -338,7 +338,7 @@ private fun ToolbarStrip(palette: Palette, shortcuts: Boolean, onOpenPanel: (Str
         }
 
         val clip = extras?.clip
-        if (clip != null && extras != null) {
+        if (clip != null) {
             // While suggestions need the room, the last copied thing shrinks to a symbol.
             QuickClipButton(palette, label = if (suggesting) null else clip, onTap = extras.onClip, onHold = extras.onClipHeld)
         }
@@ -760,7 +760,7 @@ private fun RowScope.KeyCell(
                             holdJob = scope.launch {
                                 delay(LONG_PRESS_MS)
                                 held = true
-                                if (chooses && origin != null) {
+                                if (chooses) {
                                     currentOnPopup(KeyPopup(pos, choices, 0, origin.x, origin.y, keyWidth, chooser = true))
                                 } else {
                                     currentOnDown() // a second buzz: the space bar now steers the cursor
@@ -786,7 +786,7 @@ private fun RowScope.KeyCell(
                                 break
                             }
                             val at = change.position
-                            if (held && chooses && origin != null) {
+                            if (held && chooses) {
                                 val under = KeyboardEngine.popupIndex(origin.x + at.x, popupLeft, cellPx, choices.size)
                                 if (under != index) {
                                     index = under
