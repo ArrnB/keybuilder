@@ -253,7 +253,7 @@ class KeyBuilderIme : InputMethodService(), LifecycleOwner, SavedStateRegistryOw
             applyBlur(if (panelOpen) 0f else def.theme.blurInUse())
         }
 
-        if (panelOpen && panel != null) {
+        if (panelOpen) {
             // The window is made as tall as the panel can ever get, once, when the panel opens.
             // Dragging then only changes how much of that space the panel fills, which is just
             // a redraw. Resizing the window itself on every finger movement is what made it jerky.

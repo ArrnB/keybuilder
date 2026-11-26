@@ -443,13 +443,26 @@ character or a whole group and it appears in the app.
 
 The earlier phases have been built and run on a phone.
 
-For phase 10, everything without Android code was compiled with warnings treated as errors
-and its 250 tests passed (181 before this phase). The Android parts were written without
-access to the Android build tools, so **phase 10 has not been built or run yet**. The parts
-that talk to Android without drawing anything (clipboard, sounds, fonts, vibration,
-settings, GIF saving) were type-checked against small stand-ins for the Android classes;
-the drawing code was only checked for syntax. The key sounds were made by formula and have
-not been listened to.
+Phase 10 builds cleanly with the Android build tools (no compiler warnings) and its 251 unit
+tests pass; GitHub Actions runs the tests and a debug build on every push. The release build
+(R8 shrinking on) was run on an Android emulator: the app, the style editor, typing,
+suggestions, autocorrect and the GIF panel all work. Still to try on a real phone: the key
+sounds (made by formula and not yet listened to), GIF loading with a GIPHY key, and the
+items under "Things to check" in the phase notes.
+
+```
+./gradlew testDebugUnitTest   # the unit tests, no phone needed
+./gradlew assembleRelease     # the shrunk release APK, about 1.9 MB
+```
+
+### Speed
+
+Suggestions are worked out on every key press, so they have to be quick. The engine searches
+the word list for look-alikes once per word and shares the result between the suggestions,
+autocorrect and the correction made when the word is finished; before, each of those
+searched on its own. On a desktop JVM that took typing from about 0.55 ms to about 0.38 ms
+per key press, with exactly the same suggestions and corrections (checked on 33,000 random
+typing steps).
 
 ### The stress test
 

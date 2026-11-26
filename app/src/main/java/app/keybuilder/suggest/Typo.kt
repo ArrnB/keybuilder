@@ -27,6 +27,9 @@ object Typo {
     /** Returned when the cost is above the limit that was asked for. */
     const val TOO_FAR = Float.MAX_VALUE
 
+    /** Slack allowed when comparing a cost with a limit, so float rounding never decides. */
+    const val ROUNDING = 0.0001f
+
     private val ROWS = listOf("qwertyuiop" to 0f, "asdfghjkl" to 0.5f, "zxcvbnm" to 1.5f)
 
     /** neighbours[a][b] is true when the keys for the two letters touch. */
@@ -85,7 +88,9 @@ object Typo {
 
         for (i in 1..n) {
             val t = typed[i - 1]
-            current[0] = oneBack[0] + extraCost(typed, i - 1)
+            // The same for every letter of the word, so worked out once per typed letter.
+            val extraHere = extraCost(typed, i - 1)
+            current[0] = oneBack[0] + extraHere
             var best = current[0]
             for (j in 1..m) {
                 val w = word[j - 1]
@@ -94,7 +99,7 @@ object Typo {
                 } else {
                     oneBack[j - 1] + if (areNeighbours(t, w)) NEIGHBOUR else WRONG
                 }
-                val extra = oneBack[j] + extraCost(typed, i - 1)          // a letter that should not be there
+                val extra = oneBack[j] + extraHere          // a letter that should not be there
                 if (extra < value) value = extra
                 val missing = current[j - 1] + missingCost(word, j - 1)   // a letter that was left out
                 if (missing < value) value = missing
@@ -116,7 +121,7 @@ object Typo {
         scratch.oneBack = oneBack
         scratch.current = current
         val total = oneBack[m] + firstLetter
-        return if (total <= limit + 0.0001f) total else TOO_FAR
+        return if (total <= limit + ROUNDING) total else TOO_FAR
     }
 
     /**
