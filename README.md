@@ -8,8 +8,8 @@ and for single keys), more fonts including your own font files, a text editing p
 symbols panel, recent and favourite GIFs and stickers, a keyboard height slider, and
 suggestions that shrink to fit instead of being cut off. It was also stress tested.
 Earlier phases: 9 solid panels, searching over the GIF library, blur, vibration strength,
-screenshots in the clipboard and your own corrections; 8 suggestions and autocorrect for
-English and Hinglish, the last-copied button, see-through and gradient backgrounds and
+screenshots in the clipboard and your own corrections; 8 suggestions and autocorrect, the
+last-copied button, see-through and gradient backgrounds and
 phone colours; 1 the working keyboard, 2 the style editor, 3 the layout editor and several
 saved keyboards, 4 the strip with clipboard, GIF and emoji panels, 5 long-press choices,
 pop-ups, arrow and copy/paste keys, vibration and number boxes, 6 built-in long-press
@@ -58,7 +58,7 @@ Keyboard
 - Number boxes (phone, amount, PIN, date) open the layer you choose
 - Two spaces after a word type a full stop
 
-Suggestions and autocorrect (English and Hinglish)
+Suggestions and autocorrect
 - While you type, the strip offers up to three words: completions of what you have typed and
   words it could be a slip for. Tap one to use it; a space is added for you
 - After a word, the strip guesses the next one from what you usually type after it
@@ -68,9 +68,6 @@ Suggestions and autocorrect (English and Hinglish)
   beside it: tap the quoted word to keep your own spelling
 - **Backspace straight after a fix puts your own word back**, and the keyboard never touches
   that word again
-- Hinglish is suggested but never auto-changed. It has no single correct spelling (`nahi`,
-  `nhi`, `nahin`), so "fixing" it would mostly break it. Inside a Hinglish sentence nothing is
-  auto-changed at all
 - Also left alone: names and anything else with a capital in mid-sentence, chat shorthand
   (`idk`, `hbd`), stretched words (`sooo`, `hahaha`), words with ordinary endings, and
   anything inside an e-mail address or a link
@@ -79,11 +76,7 @@ Suggestions and autocorrect (English and Hinglish)
   which, and how you capitalise names. All of it is one file on the phone
 - **Your own corrections:** type `tmrw`, tap `tomorrow` in the suggestions, and the keyboard
   remembers. The first time it puts `tomorrow` first for `tmrw`; from the second time it makes
-  the change for you. This works for Hinglish too (`nhi` to `nahi`, if that is what you pick),
-  and backspace straight after undoes it and drops the habit
-- **Which language you mostly type:** once most of the words it has learned from you are
-  Hinglish, an unknown word at the very start of a sentence is taken to be Hinglish and left
-  alone instead of being "fixed" into English
+  the change for you, and backspace straight after undoes it and drops the habit
 - **Never in password boxes.** There, and in number boxes, the keyboard does not read the
   text at all. In boxes for e-mail addresses and links, and boxes that ask for no
   suggestions, it does nothing either, with one exception: if you have made text shortcuts
@@ -229,9 +222,6 @@ fixes 58% correctly by itself, changes 1% into the wrong word, and leaves the re
 wrongly changes under 0.2%. Its weak spot is names and rare words typed without a capital that
 no list knows: about 6% of those get changed, which is what backspace-to-undo and learning are
 for. The settings were chosen to keep wrong changes low at the cost of fixing fewer slips.
-
-Nothing was measured for Hinglish, because there is no list of Hinglish misspellings to
-measure against; that is also why Hinglish is only ever suggested.
 
 Slips are judged by the usual QWERTY arrangement (a neighbouring key counts as a likely
 slip). On a keyboard you have rearranged heavily, that part is less accurate.
@@ -418,15 +408,13 @@ the Tenor API to outside developers on 30 June 2026). To switch provider later, 
 
 ## The word list
 
-`assets/words/words.txt` has one word per line with a score (how common it is) and a language:
-English, Hinglish or both. It is made by `tools/build_words.py` from three sources:
+`assets/words/words.txt` has one word per line with a score (how common it is) and a language
+tag. It is made by `tools/build_words.py`, mainly from:
 
 - English words and their frequencies from the **wordfreq** project (Robyn Speer and others).
   Rare words are only included if they are also in Webster's Second International word list
   ("web2", public domain), which keeps misspellings out.
-- A hand-written list of about 800 everyday Hinglish words and short forms.
-- wordfreq's Hindi list, turned into English letters by rules in the script. These spellings
-  are guesses, so they score lower; your own spellings are learned as you type.
+- A hand-written list of everyday words and short forms.
 
 **Licence note:** wordfreq's data is published under Creative Commons Attribution-ShareAlike
 4.0, and `words.txt` is derived from it. If you publish the app, credit wordfreq and keep the
@@ -524,7 +512,7 @@ Things that could only be reasoned about, not tried, and are worth watching:
 
 11. **Suggestion extras:** removing a single learned word from the strip, emoji suggestions,
     slips judged by your own key arrangement instead of QWERTY
-12. **Hindi script:** a Devanagari layout, or typing Hinglish and getting Hindi
+12. **Hindi script:** a Devanagari layout
 13. **Layout extras:** one-handed mode, a separate landscape layout, a keyboard per app,
     dragging keys with a finger in the editor
 14. **Look extras:** a photo as the background, a light and a dark look that switch with the phone
